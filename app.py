@@ -185,7 +185,7 @@ else:
             options = {f"🎮 {item['name']} (AppID: {item['id']})": item['id'] for item in st.session_state["player_search_results"]}
             selected_label = st.selectbox("请在下方候选大盘列表中选择一项锁定：", list(options.keys()))
             
-            if st.button("🚀 锁定并生成全功能开荒红皮书"):
+            if st.button("🚀 、您要找的是否是"):
                 target_appid = options[selected_label]
                 with st.spinner("正在提取该游戏的核心数据资产与特色简介..."):
                     res = fetch_game_guide_details(target_appid)
@@ -223,8 +223,8 @@ else:
                 st.markdown(f"**📖 游戏官方简介与背景：** \n{game_info['short_desc']}")
             
             st.markdown("---")
-            st.markdown("### 📺 玩家速成快捷键：一键空降全网保姆级教学视频平台")
-            st.write("系统已为您基于当前游戏名称，智能动态编码封装了最佳开荒搜索矩阵。点击下方平台按钮即可跳转学习：")
+            st.markdown("### 📺 教学视频")
+            st.write("点击下方平台按钮即可跳转学习：")
             
             encoded_game_name = urllib.parse.quote(game_info['game_name'])
             bilibili_url = f"https://search.bilibili.com/all?keyword={encoded_game_name}%20%E6%95%99%E5%AD%A6%E6%94%BB%E7%95%A5"
