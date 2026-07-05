@@ -40,8 +40,6 @@ if "last_search_appid" not in st.session_state: st.session_state["last_search_ap
 # 1. 数据科学通道：带有“正版硬编码守卫”的搜索器
 # =========================================================================
 def search_steam_appid_by_name(game_name):
-    """通过游戏名称模糊检索 Steam 官方商店 (加入正版防御机制)"""
-    # 🌟 绝招：针对核心大作进行强力拦截，防止山寨擦边球抢占权重
     normalized_name = game_name.strip().lower()
     if "黑神话" in normalized_name or "wukong" in normalized_name or "black myth" in normalized_name:
         return [{"id": "2358720", "name": "Black Myth: Wukong (黑神话：悟空 正版)"}]
@@ -58,7 +56,6 @@ def search_steam_appid_by_name(game_name):
             items = response.json().get("items", [])
             results = []
             for item in items[:5]:
-                # 过滤掉带有明显山寨嫌疑的敏感字眼
                 name_check = item.get("name", "").lower()
                 if "destiny man" in name_check:
                     continue
@@ -72,7 +69,6 @@ def search_steam_appid_by_name(game_name):
     return []
 
 def fetch_game_guide_details(app_id):
-    """抓取游戏详细介绍、核心特色及横幅资产"""
     api_url = f"https://store.steampowered.com/api/appdetails?appids={app_id}&l=zh-cn"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     try:
@@ -88,9 +84,7 @@ def fetch_game_guide_details(app_id):
         clean_desc = re.sub(r'<[^>]+>', '', raw_desc).strip()
         short_desc = clean_desc if len(clean_desc) <= 500 else clean_desc[:500] + "..."
         
-        # 提取官方正版大图
         header_image = game_data.get("header_image", "")
-        
         genres = game_data.get("genres", [])
         tags = [g.get("description", "") for g in genres[:8]] or ["新游开荒"]
         developers = ", ".join(game_data.get("developers", ["未知"]))
@@ -140,7 +134,7 @@ if st.session_state["current_user_id"] is None:
                 else:
                     users_db[r_id] = {"password": r_pwd, "name": r_name}
                     save_json_db(USER_DB_FILE, users_db)
-                    st.success("玩家注册成功！数据已同步，请切换回登录。")
+                    st.success("玩家注册成功！请切换回登录。")
                     st.session_state["auth_page"] = "login"; st.rerun()
             if st.button("返回登录界面"):
                 st.session_state["auth_page"] = "login"; st.rerun()
@@ -165,6 +159,9 @@ else:
     st.sidebar.header("📁 核心向功能导航")
     app_mode = st.sidebar.radio("请选择核心模块", ["🔍 新游智能开荒检索", "📜 个人探索历史清单", "💬 社区开荒开黑交流区"])
     
+    # ---------------------------------------------------------------------
+    # 模块 1：新游智能开荒检索
+    # ---------------------------------------------------------------------
     if app_mode == "🔍 新游智能开荒检索":
         st.sidebar.markdown("---")
         st.sidebar.header("📥 游戏大盘检索")
@@ -185,14 +182,17 @@ else:
             options = {f"🎮 {item['name']} (AppID: {item['id']})": item['id'] for item in st.session_state["player_search_results"]}
             selected_label = st.selectbox("请在下方候选大盘列表中选择一项锁定：", list(options.keys()))
             
-            if st.button("🚀 、您要找的是否是"):
+            if st.button("🚀 锁定并生成全功能开荒红皮书"):
                 target_appid = options[selected_label]
                 with st.spinner("正在提取该游戏的核心数据资产与特色简介..."):
                     res = fetch_game_guide_details(target_appid)
                     if res:
                         if user_id not in history_db: history_db[user_id] = []
+                        # 确保精确存入 3 个对应字段
                         history_db[user_id].append({
-                            "app_id": target_appid, "game_name": res["game_name"], "time": datetime.now().strftime("%Y-%m-%d %H:%M")
+                            "app_id": str(target_appid), 
+                            "game_name": str(res["game_name"]), 
+                            "time": datetime.now().strftime("%Y-%m-%d %H:%M")
                         })
                         save_json_db(HISTORY_DB_FILE, history_db)
                         
@@ -208,11 +208,10 @@ else:
             
             col_img, col_txt = st.columns([1, 2])
             with col_img:
-                # 🌟 正版大图渲染安全策略
                 if game_info["header_image"]:
                     st.image(game_info["header_image"], use_container_width=True, caption="Steam 官方正版数字资产图片")
                 else:
-                    st.image("https://images.unsplash.com/photo-1612287230202-1bf1d85d1bdf?q=80&w=600&auto=format&fit=crop", use_container_width=True, caption="研发节点安全兜底壁纸")
+                    st.image("https://images.unsplash.com/photo-1612287230202-1bf1d85d1bdf?q=80&w=600&auto=format&fit=crop", use_container_width=True)
                 st.markdown(f"**🏢 开发商：** `{game_info['developers']}`")
                 st.markdown(f"**🔢 官方 AppID：** `{current_appid}`")
             with col_txt:
@@ -223,8 +222,8 @@ else:
                 st.markdown(f"**📖 游戏官方简介与背景：** \n{game_info['short_desc']}")
             
             st.markdown("---")
-            st.markdown("### 📺 教学视频")
-            st.write("点击下方平台按钮即可跳转学习：")
+            st.markdown("### 📺 玩家速成快捷键：一键空降全网保姆级教学视频平台")
+            st.write("系统已为您基于当前游戏名称，智能动态编码封装了最佳开荒搜索矩阵：")
             
             encoded_game_name = urllib.parse.quote(game_info['game_name'])
             bilibili_url = f"https://search.bilibili.com/all?keyword={encoded_game_name}%20%E6%95%99%E5%AD%A6%E6%94%BB%E7%95%A5"
@@ -232,21 +231,9 @@ else:
             
             v_col1, v_col2 = st.columns(2)
             with v_col1:
-                st.markdown(f"""
-                <a href="{bilibili_url}" target="_blank" style="text-decoration: none;">
-                    <div style="background-color: #fb7299; color: white; padding: 15px; border-radius: 8px; text-align: center; font-weight: bold; cursor: pointer; box-shadow: 2px 2px 5px rgba(0,0,0,0.1);">
-                        📺 哔哩哔哩 (Bilibili) | 调取国内【{game_info['game_name']}】保姆级新手开荒/全收集攻略
-                    </div>
-                </a>
-                """, unsafe_allow_html=True)
+                st.markdown(f'<a href="{bilibili_url}" target="_blank" style="text-decoration: none;"><div style="background-color: #fb7299; color: white; padding: 15px; border-radius: 8px; text-align: center; font-weight: bold;">📺 哔哩哔哩 (Bilibili) | 调取国内【{game_info["game_name"]}】保姆级新手开荒/全收集攻略</div></a>', unsafe_allow_html=True)
             with v_col2:
-                st.markdown(f"""
-                <a href="{youtube_url}" target="_blank" style="text-decoration: none;">
-                    <div style="background-color: #ff0000; color: white; padding: 15px; border-radius: 8px; text-align: center; font-weight: bold; cursor: pointer; box-shadow: 2px 2px 5px rgba(0,0,0,0.1);">
-                        🎬 YouTube Global | 调取全球【{game_info['game_name']}】100% 极限速通与机制拆解
-                    </div>
-                </a>
-                """, unsafe_allow_html=True)
+                st.markdown(f'<a href="{youtube_url}" target="_blank" style="text-decoration: none;"><div style="background-color: #ff0000; color: white; padding: 15px; border-radius: 8px; text-align: center; font-weight: bold;">🎬 YouTube Global | 调取全球【{game_info["game_name"]}】100% 极限速通与机制拆解</div></a>', unsafe_allow_html=True)
             
             st.markdown("---")
             st.subheader(f"💬 【{game_info['game_name']}】玩家互助、开黑与踩坑反馈区")
@@ -270,19 +257,40 @@ else:
                     st.rerun()
         else:
             if "player_search_results" not in st.session_state or not st.session_state["player_search_results"]:
-                st.info("💡 开荒助手已就绪。请在左侧侧边栏输入任何你想玩的游戏名称（支持中文/英文，如：黑神话、艾尔登法环、Hades），开启全新玩家红皮书。")
+                st.info("💡 开荒助手已就绪。请在左侧侧边栏输入任何你想玩的游戏名称，开启全新玩家红皮书。")
 
+    # ---------------------------------------------------------------------
+    # 模块 2：个人探索历史清单 (🌟 重点修复：动态列映射安全防护)
+    # ---------------------------------------------------------------------
     elif app_mode == "📜 个人探索历史清单":
         st.subheader("📜 您的专属游戏探索足迹清单")
+        
         user_history = history_db.get(user_id, [])
         if not user_history:
             st.info("您当前还没有检索过任何游戏，快去左侧输入名字开启探索吧！")
         else:
+            # 1. 转化为 DataFrame
             df = pd.DataFrame(user_history)
+            
+            # 2. 🛡️ 【数据科学安全守卫】动态检查并强制对齐预期字段，防止不规范存盘报错
+            expected_keys = ["app_id", "game_name", "time"]
+            for key in expected_keys:
+                if key not in df.columns:
+                    df[key] = "未录入"
+            
+            # 3. 严格提取这三列，丢弃可能干扰的多余列
+            df = df[expected_keys]
+            
+            # 4. 安全赋予中文名称，杜绝 Length mismatch 报错
             df.columns = ["游戏 AppID", "被搜索游戏名称", "探索解锁时间"]
+            
+            # 5. 渲染可视化面板
             st.dataframe(df, use_container_width=True)
             st.metric(label="已解锁探索游戏总数", value=f"{len(user_history)} 款")
 
+    # ---------------------------------------------------------------------
+    # 模块 3：社区开荒开黑交流区
+    # ---------------------------------------------------------------------
     elif app_mode == "💬 社区开荒开黑交流区":
         st.subheader("💬 大数据实验室 · 全能玩家开荒综合讨论广场")
         st.write("在这里发布联机暗号、硬件配置探讨或全站动态。")
