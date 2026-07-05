@@ -4,6 +4,7 @@ import requests
 import re
 import json
 import os
+import urllib.parse
 from datetime import datetime
 
 # =========================================================================
@@ -27,21 +28,21 @@ def save_json_db(file_path, data):
         json.dump(data, f, ensure_ascii=False, indent=4)
 
 # 初始化底层本地数据库
-users_db = load_json_db(USER_DB_FILE, {"admin": {"password": "123456", "name": "实验室专家-老王"}})
+users_db = load_json_db(USER_DB_FILE, {"admin": {"password": "123456", "name": "核心硬核玩家-老王"}})
 comments_db = load_json_db(COMMENT_DB_FILE, {})
 history_db = load_json_db(HISTORY_DB_FILE, {})
 
 # 初始化 Session 核心状态机
 if "current_user_id" not in st.session_state: st.session_state["current_user_id"] = None
 if "auth_page" not in st.session_state: st.session_state["auth_page"] = "login"
-if "last_diag_result" not in st.session_state: st.session_state["last_diag_result"] = None
-if "last_diag_appid" not in st.session_state: st.session_state["last_diag_appid"] = None
+if "last_search_result" not in st.session_state: st.session_state["last_search_result"] = None
+if "last_search_appid" not in st.session_state: st.session_state["last_search_appid"] = None
 
 # =========================================================================
-# 1. 数据科学通道：游戏名称模糊搜索器 + API 数据抓取
+# 1. 数据科学通道：游戏检索、特征提炼与媒体链接生成
 # =========================================================================
 def search_steam_appid_by_name(game_name):
-    """通过游戏名称模糊检索 Steam 官方商店，返回相似度最高的游戏列表"""
+    """通过游戏名称模糊检索 Steam 官方商店"""
     search_url = f"https://store.steampowered.com/api/storesearch/?term={game_name}&l=zh-cn&cc=HK"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     try:
@@ -59,7 +60,8 @@ def search_steam_appid_by_name(game_name):
         pass
     return []
 
-def fetch_steam_game_features_final(app_id):
+def fetch_game_guide_details(app_id):
+    """抓取游戏详细介绍、核心特色及横幅资产"""
     api_url = f"https://store.steampowered.com/api/appdetails?appids={app_id}&l=zh-cn"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     try:
@@ -70,91 +72,70 @@ def fetch_steam_game_features_final(app_id):
         
         game_data = data[str(app_id)]["data"]
         game_name = game_data.get("name", "未知独立游戏")
-        screenshot_count = len(game_data.get("screenshots", []))
-        video_count = len(game_data.get("movies", []))
-        clean_text = re.sub(r'<[^>]+>', '', game_data.get("about_the_game", "")).strip()
         
+        # 清洗复杂的 HTML 标签，提炼纯文本简介
+        raw_desc = game_data.get("about_the_game", "暂无详细简介")
+        clean_desc = re.sub(r'<[^>]+>', '', raw_desc).strip()
+        # 截取前 500 字作为精简特色简介
+        short_desc = clean_desc if len(clean_desc) <= 500 else clean_desc[:500] + "..."
+        
+        # 抓取游戏宣传主图
+        header_image = game_data.get("header_image", "")
+        
+        # 抓取标签/分类
         genres = game_data.get("genres", [])
-        tags = [g.get("description", "") for g in genres[:10]] or ["独立开发", "策略"]
-            
+        tags = [g.get("description", "") for g in genres[:8]] or ["新游开荒"]
+        
+        # 开发商与运营商
+        developers = ", ".join(game_data.get("developers", ["未知"]))
+        
         return {
-            "game_name": game_name, "screenshot_count": screenshot_count, 
-            "video_count": video_count, "desc_length": len(clean_text), "tags": tags
+            "game_name": game_name,
+            "short_desc": short_desc,
+            "header_image": header_image,
+            "tags": tags,
+            "developers": developers
         }
-    except: return None
+    except:
+        return None
 
 # =========================================================================
-# 2. 诊断算法规则引擎逻辑
+# 2. 前端工程架构（Steam 游戏全能开荒助手）
 # =========================================================================
-def diagnose_game(features):
-    score = 100
-    suggestions = []
-    if features["video_count"] == 0:
-        score -= 50
-        suggestions.append({
-            "element": "🎬 商店顶部缺失核心宣传视频",
-            "status": "当前 0 个视频 (行业标准: 至少 1 个高清实机 PV)",
-            "action": "极度危险！没有视频预告的游戏页面转化率会暴跌 80% 以上。请立刻制作并上传包含实际核心玩法、打击感或核心机制的实机 PV。",
-            "image_url": "https://images.unsplash.com/photo-1407845944202-3010d846b904?q=80&w=600&auto=format&fit=crop",
-            "image_caption": "💡 优秀示例：轮播图第一位必须放置实机宣传片，前 5 秒就要切入核心玩法或高燃画面。"
-        })
-    if features["screenshot_count"] < 9:
-        score -= int(((9 - features["screenshot_count"]) / 9) * 30)
-        suggestions.append({
-            "element": "📸 游戏截图数量或排版不足",
-            "status": f"当前 {features['screenshot_count']} 张 (标杆均值: 9 张以上)",
-            "action": "建议补齐至少 9 张带有真实 UI 的高清截图。玩家需要通过截图了解游戏内的真实 UI 布局、画风和画面品质，切忌全是播片和纯概念 CG。",
-            "image_url": "https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=600&auto=format&fit=crop", 
-            "image_caption": "💡 优秀示例：展示清晰的 UI、战斗/核心反馈激烈的真实截图，能让玩家快速建立玩法预期。"
-        })
-    if features["desc_length"] < 600:
-        score -= 20
-        suggestions.append({
-            "element": "📝 详细描述篇幅过短或缺乏排版",
-            "status": f"当前 {features['desc_length']} 字 (标杆均值: 850 字左右)",
-            "action": "丰富你的游戏详细介绍。建议使用加粗标题、分栏符号、彩色图形小图标等可视化排版技术，明确分块列出游戏核心特色、玩法机制、世界观简述，让玩家快速建立信任感。",
-            "image_url": "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=600&auto=format&fit=crop", 
-            "image_caption": "💡 优秀示例：多用小标题分块，利用图形化、列表化展现游戏卖点，避免大段枯燥密集的文字堆砌。"
-        })
-    return {"score": max(score, 0), "suggestions": suggestions}
-
-# =========================================================================
-# 3. 前端工程架构（带状态守卫的多页面 SaaS 路由系统）
-# =========================================================================
-st.set_page_config(page_title="Steam CRO Full-Stack SaaS", page_icon="🚀", layout="wide")
+st.set_page_config(page_title="Steam Game Pioneer Hub", page_icon="🎮", layout="wide")
 
 # 🔒 情况 A：未登录状态 -> 锁定系统
 if st.session_state["current_user_id"] is None:
-    st.title("🚀 Steam 商店页面转化率优化 SaaS 平台 (CRO Engine)")
-    st.caption("香港树仁大学应用数据科学系 · 大数据实验室研发项目")
+    st.title("🎮 Steam 游戏全能开荒助手 (Game Pioneer Hub)")
+    st.caption("香港树仁大学应用数据科学系 · 大数据实验室玩家辅助研发项目")
     st.markdown("---")
     
     _, col_b, _ = st.columns([1, 2, 1])
     with col_b:
         if st.session_state["auth_page"] == "login":
-            st.subheader("🔑 开发者登录后台")
+            st.subheader("🔑 玩家/研究员登录后台")
             u_id = st.text_input("账号 ID", placeholder="请输入注册账号")
             u_pwd = st.text_input("登录密码", type="password", placeholder="请输入密码")
-            if st.button("进入系统", use_container_width=True):
+            if st.button("进入开荒中心", use_container_width=True):
                 if u_id in users_db and users_db[u_id]["password"] == u_pwd:
                     st.session_state["current_user_id"] = u_id
                     st.rerun()
                 else: st.error("账号或密码不匹配，请重试。")
-            if st.button("新晋开发者？去注册账号"):
+            if st.button("新玩家加入？点击一键注册"):
                 st.session_state["auth_page"] = "register"; st.rerun()
                 
         elif st.session_state["auth_page"] == "register":
-            st.subheader("📝 开发者账户注册")
-            r_id = st.text_input("设置登录账号 (英文字母/数字)")
-            r_name = st.text_input("团队/制作人昵称 (展示用)")
+            st.subheader("📝 玩家账户注册")
+            r_id = st.text_input("设置玩家账号 (英文字母/数字)")
+            r_name = st.text_input("游戏圈个性昵称 (展示用)")
             r_pwd = st.text_input("设置密码", type="password")
-            if st.button("提交注册并同步至实验室数据库", use_container_width=True):
+            if st.button("同步注册信息", use_container_width=True):
                 if not r_id or not r_name or not r_pwd: st.error("所有注册字段均不能为空！")
-                elif r_id in users_db: st.error("该账号已被注册，请更换账号 ID。")
+                elif r_id in users_db: st.error("该账号已被注册，请更换玩家 ID。")
                 else:
                     users_db[r_id] = {"password": r_pwd, "name": r_name}
                     save_json_db(USER_DB_FILE, users_db)
-                    st.success("注册成功！请切换回登录。")
+                    st.success("玩家注册成功！数据已同步，请切换回登录。")
                     st.session_state["auth_page"] = "login"; st.rerun()
             if st.button("返回登录界面"):
                 st.session_state["auth_page"] = "login"; st.rerun()
@@ -164,185 +145,178 @@ else:
     user_id = st.session_state["current_user_id"]
     user_name = users_db[user_id]["name"]
     
+    # 全局顶部状态栏
     col_t1, col_t2 = st.columns([4, 1])
     with col_t1:
-        st.title("🚀 Steam 商店页面转化率优化 SaaS 平台")
-        st.write(f"当前在线研究员：**{user_name}** (`ID: {user_id}`) | 节点状态：`树仁大学大数据实验室公网授权节点`")
+        st.title("🎮 Steam 游戏全能开荒助手 (Pioneer Hub)")
+        st.write(f"当前在线玩家：**{user_name}** | 实验室系统节点：`树仁应用数据科学大数据实验室监控中`")
     with col_t2:
         st.write(" ")
-        if st.button("⚙️ 安全退出系统", use_container_width=True):
+        if st.button("⚙️ 安全退出助手", use_container_width=True):
             st.session_state["current_user_id"] = None
-            st.session_state["last_diag_result"] = None
-            st.session_state["last_diag_appid"] = None
+            st.session_state["last_search_result"] = None
+            st.session_state["last_search_appid"] = None
             st.rerun()
     st.markdown("---")
     
-    st.sidebar.header("📁 功能导航后台")
-    app_mode = st.sidebar.radio("请选择核心模块", ["📊 商店页面自动化诊断", "📜 个人历史记录看板", "💬 游戏发行公共交流区"])
+    st.sidebar.header("📁 核心向功能导航")
+    app_mode = st.sidebar.radio("请选择核心模块", ["🔍 新游智能开荒检索", "📜 个人探索历史清单", "💬 社区开荒开黑交流区"])
     
     # ---------------------------------------------------------------------
-    # 模块 1：自动化诊断与评论区联动（带模糊名称智能匹配）
+    # 模块 1：新游智能开荒检索（核心功能区）
     # ---------------------------------------------------------------------
-    if app_mode == "📊 商店页面自动化诊断":
+    if app_mode == "🔍 新游智能开荒检索":
         st.sidebar.markdown("---")
-        st.sidebar.header("📥 智能诊断检索")
+        st.sidebar.header("📥 游戏大盘检索")
+        search_query = st.sidebar.text_input("请输入想了解的游戏名字", value="黑神话")
         
-        # 智能化输入提示
-        search_query = st.sidebar.text_input("请输入游戏名字 或 AppID", value="Deep Rock Galactic")
-        
-        # 处理逻辑：如果是纯数字，直接诊断；如果是文本，先执行模糊匹配
-        if st.sidebar.button("🔍 智能检索与诊断", use_container_width=True):
-            if search_query.isdigit():
-                # 直接按 AppID 诊断
-                target_appid = search_query
-                with st.spinner("正在安全调取官方API数据资产通道..."):
-                    res = fetch_steam_game_features_final(target_appid)
-                    if res:
-                        report = diagnose_game(res)
-                        if user_id not in history_db: history_db[user_id] = []
-                        history_db[user_id].append({
-                            "app_id": target_appid, "game_name": res["game_name"],
-                            "score": report["score"], "time": datetime.now().strftime("%Y-%m-%d %H:%M")
-                        })
-                        save_json_db(HISTORY_DB_FILE, history_db)
-                        
-                        st.session_state["last_diag_result"] = report
-                        st.session_state["last_diag_appid"] = target_appid
-                        st.session_state["last_game_features"] = res
-                    else: st.sidebar.error("未找到该 AppID。")
-            else:
-                # 模糊名称查找
-                with st.spinner("正在检索 Steam 官方大盘数据库..."):
-                    search_results = search_steam_appid_by_name(search_query)
-                    if search_results:
-                        st.session_state["search_results"] = search_results
-                        st.sidebar.success(f"为您寻获 {len(search_results)} 款关联游戏，请在主面板选择后诊断！")
-                    else:
-                        st.sidebar.error("未在大盘中找到关联游戏，请精简名称重试。")
-                        st.session_state["search_results"] = None
+        if st.sidebar.button("🔍 智能检索大盘", use_container_width=True):
+            with st.spinner("正在扫描 Steam 官方大盘数据库..."):
+                search_results = search_steam_appid_by_name(search_query)
+                if search_results:
+                    st.session_state["player_search_results"] = search_results
+                    st.sidebar.success(f"为您寻获 {len(search_results)} 款关联目标！")
+                else:
+                    st.sidebar.error("未找到关联游戏，请检查错别字或缩写。")
+                    st.session_state["player_search_results"] = None
 
-        # 🌟 复杂组件：如果触发了名字模糊检索，在主面板渲染“二次确认下拉选择器”
-        if "search_results" in st.session_state and st.session_state["search_results"]:
-            st.markdown("### 🎯 智能匹配中：请确认你要诊断的游戏目标")
-            options = {f"🎮 {item['name']} (AppID: {item['id']})": item['id'] for item in st.session_state["search_results"]}
-            selected_label = st.selectbox("系统在大数据大盘中找到以下候选项，请选择一项锁定：", list(options.keys()))
+        # 联动组件：在主面板渲染“游戏确认下拉选择器”
+        if "player_search_results" in st.session_state and st.session_state["player_search_results"]:
+            st.markdown("### 🎯 请锁定您想要检索的游戏目标")
+            options = {f"🎮 {item['name']} (AppID: {item['id']})": item['id'] for item in st.session_state["player_search_results"]}
+            selected_label = st.selectbox("请在下方候选大盘列表中选择一项锁定：", list(options.keys()))
             
-            if st.button("🚀 锁定目标并一键执行 CRO 诊断"):
+            if st.button("🚀 锁定并生成全功能开荒红皮书"):
                 target_appid = options[selected_label]
-                with st.spinner("数据清洗与资产清点中..."):
-                    res = fetch_steam_game_features_final(target_appid)
+                with st.spinner("正在提取该游戏的核心数据资产与特色简介..."):
+                    res = fetch_game_guide_details(target_appid)
                     if res:
-                        report = diagnose_game(res)
+                        # 记录到探索历史数据库
                         if user_id not in history_db: history_db[user_id] = []
                         history_db[user_id].append({
-                            "app_id": target_appid, "game_name": res["game_name"],
-                            "score": report["score"], "time": datetime.now().strftime("%Y-%m-%d %H:%M")
+                            "app_id": target_appid, "game_name": res["game_name"], "time": datetime.now().strftime("%Y-%m-%d %H:%M")
                         })
                         save_json_db(HISTORY_DB_FILE, history_db)
                         
-                        st.session_state["last_diag_result"] = report
-                        st.session_state["last_diag_appid"] = target_appid
-                        st.session_state["last_game_features"] = res
-                        # 诊断完成后清空搜索候选区
-                        st.session_state["search_results"] = None
+                        # 锁定至数据守卫缓存
+                        st.session_state["last_search_result"] = res
+                        st.session_state["last_search_appid"] = target_appid
+                        st.session_state["player_search_results"] = None
                         st.rerun()
             st.markdown("---")
         
-        # 🌟 状态守卫渲染引擎：诊断结果区
-        if st.session_state["last_diag_result"] is not None:
-            saved_report = st.session_state["last_diag_result"]
-            saved_appid = st.session_state["last_diag_appid"]
-            saved_features = st.session_state["last_game_features"]
+        # 🌟 数据守卫渲染引擎：渲染游戏特色、简介、以及一键教学视频直达
+        if st.session_state["last_search_result"] is not None:
+            game_info = st.session_state["last_search_result"]
+            current_appid = st.session_state["last_search_appid"]
             
-            c1, c2 = st.columns([1, 2])
-            with c1:
-                st.markdown("### 🎯 转化潜力综合评分")
-                scr = saved_report["score"]
-                if scr >= 80:
-                    st.markdown(f"<div style='background-color: #d4edda; color: #155724; padding: 15px; border-radius: 5px; border-left: 5px solid #28a745;'><h1 style='margin:0;'>{scr} 分</h1><p style='margin:5px 0 0 0;'>🎉 质量优秀，继续保持！</p></div>", unsafe_allow_html=True)
-                elif scr >= 50:
-                    st.markdown(f"<div style='background-color: #fff3cd; color: #856404; padding: 15px; border-radius: 5px; border-left: 5px solid #ffc107;'><h1 style='margin:0;'>{scr} 分</h1><p style='margin:5px 0 0 0;'>🟡 页面有较大优化空间。</p></div>", unsafe_allow_html=True)
-                else:
-                    st.markdown(f"<div style='background-color: #f8d7da; color: #721c24; padding: 15px; border-radius: 5px; border-left: 5px solid #dc3545;'><h1 style='margin:0;'>{scr} 分</h1><p style='margin:5px 0 0 0;'>🚨 存在严重短板，亟需修改！</p></div>", unsafe_allow_html=True)
-            with c2:
-                st.subheader(f"🎮 游戏：{saved_features['game_name']} (AppID: {saved_appid})")
-                st.write(f"**分类标签：** {' | '.join(saved_features['tags'])}")
-                st.write(f"**数据快照：** 预告片: {saved_features['video_count']}个 | 高清截图: {saved_features['screenshot_count']}张 | 详情字数: {saved_features['desc_length']}字")
+            # 分栏布局展现：左边图片，右边简介与标签
+            col_img, col_txt = st.columns([1, 2])
+            with col_img:
+                if game_info["header_image"]:
+                    st.image(game_info["header_image"], use_container_width=True)
+                st.markdown(f"**🏢 开发商：** `{game_info['developers']}`")
+                st.markdown(f"**🔢 官方 AppID：** `{current_appid}`")
+            with col_txt:
+                st.subheader(f"🎮 游戏名称：{game_info['game_name']}")
+                # 动态生成标签云
+                tags_html = "".join([f"<span style='background-color:#007bff;color:white;padding:3px 8px;margin-right:5px;border-radius:3px;font-size:12px;'>{t}</span>" for t in game_info["tags"]])
+                st.markdown(f"**🏷️ 核心特色分类：** {tags_html}", unsafe_allow_html=True)
+                st.markdown(" ")
+                st.markdown(f"**📖 游戏官方简介与背景：** \n{game_info['short_desc']}")
             
-            st.markdown("### 🛠️ 转化率像素级改进药方")
-            if not saved_report["suggestions"]:
-                st.balloons()
-                st.success("完美！该游戏页面各要素已达到大数据标杆发行标准。")
-            else:
-                for item in saved_report["suggestions"]:
-                    with st.expander(item["element"], expanded=True):
-                        tx_col, im_col = st.columns([3, 2])
-                        with tx_col:
-                            st.markdown(f"**🔴 触发痛点：** {item['status']}")
-                            st.info(f"**💡 专家级解决方案：** {item['action']}")
-                        with im_col: 
-                            st.image(item["image_url"], caption=item["image_caption"], use_container_width=True)
-            
-            # 本 AppID 游戏专属公共评论区
+            # 🚀 【震撼重头戏】：动态跳转教学视频平台链接生成区
             st.markdown("---")
-            st.subheader(f"💬 关于【{saved_features['game_name']}】的发行运营专项讨论区")
+            st.markdown("### 📺 玩家速成快捷键：一键空降全网保姆级教学视频平台")
+            st.write("系统已为您基于当前游戏名称，智能动态编码封装了最佳开荒搜索矩阵。点击下方平台按钮即可跳转学习：")
             
-            game_comments = comments_db.get(str(saved_appid), [])
+            # 对游戏名进行 URL 安全编码，防止中文字符或特殊符号导致链接断裂
+            encoded_game_name = urllib.parse.quote(game_info['game_name'])
+            
+            # 构建智能检索矩阵链接
+            bilibili_url = f"https://search.bilibili.com/all?keyword={encoded_game_name}%20%E6%95%99%E5%AD%A6%E6%94%BB%E7%95%A5"
+            youtube_url = f"https://www.youtube.com/results?search_query={encoded_game_name}+guide+walkthrough"
+            
+            v_col1, v_col2 = st.columns(2)
+            with v_col1:
+                st.markdown(f"""
+                <a href="{bilibili_url}" target="_blank" style="text-decoration: none;">
+                    <div style="background-color: #fb7299; color: white; padding: 15px; border-radius: 8px; text-align: center; font-weight: bold; cursor: pointer; box-shadow: 2px 2px 5px rgba(0,0,0,0.1);">
+                        📺 哔哩哔哩 (Bilibili) | 调取国内【{game_info['game_name']}】保姆级新手开荒/全收集攻略
+                    </div>
+                </a>
+                """, unsafe_allow_html=True)
+            with v_col2:
+                st.markdown(f"""
+                <a href="{youtube_url}" target="_blank" style="text-decoration: none;">
+                    <div style="background-color: #ff0000; color: white; padding: 15px; border-radius: 8px; text-align: center; font-weight: bold; cursor: pointer; box-shadow: 2px 2px 5px rgba(0,0,0,0.1);">
+                        🎬 YouTube Global | 调取全球【{game_info['game_name']}'] 100% 极限速通与机制拆解
+                    </div>
+                </a>
+                """, unsafe_allow_html=True)
+            
+            # 🌟 玩家评论互动专区
+            st.markdown("---")
+            st.subheader(f"💬 【{game_info['game_name']}】玩家互助、开黑与踩坑反馈区")
+            
+            game_comments = comments_db.get(str(current_appid), [])
             if not game_comments:
-                st.caption("当前暂无针对该游戏的运营讨论，欢迎发布首条专家建议！")
+                st.caption("当前暂无玩家留言，欢迎发布首条逃坑/组队指南！")
             else:
                 for c in game_comments:
-                    st.markdown(f"**👤 研究员: {c['user']}** (`{c['time']}`):  \n> {c['text']}")
+                    st.markdown(f"**👤 玩家: {c['user']}** (`{c['time']}`):  \n> {c['text']}")
             
             with st.form("comment_form", clear_on_submit=True):
-                new_comment = st.text_area("添加你的商业调优建议或避雷分析：")
-                if st.form_submit_button("发布到该游戏讨论板") and new_comment.strip():
-                    if str(saved_appid) not in comments_db: comments_db[str(saved_appid)] = []
-                    comments_db[str(saved_appid)].append({
+                new_comment = st.text_area("发布你的通关心得、联机暗号或避雷经验：")
+                if st.form_submit_button("发布到该游戏开荒板") and new_comment.strip():
+                    if str(current_appid) not in comments_db: comments_db[str(current_appid)] = []
+                    comments_db[str(current_appid)].append({
                         "user": user_name, "text": new_comment, "time": datetime.now().strftime("%Y-%m-%d %H:%M")
                     })
                     save_json_db(COMMENT_DB_FILE, comments_db)
-                    st.success("评论已成功同步至该游戏主板！")
+                    st.success("心得发布成功，已实时同步！")
                     st.rerun()
         else:
-            if "search_results" not in st.session_state or not st.session_state["search_results"]:
-                st.info("💡 系统就绪。请在左侧侧边栏输入游戏名称（支持中文/英文模糊匹配，如：黑神话、Cyberpunk），并点击智能检索。")
+            if "player_search_results" not in st.session_state or not st.session_state["player_search_results"]:
+                st.info("💡 开荒助手已就绪。请在左侧侧边栏输入任何你想玩的游戏名称（支持中文/英文，如：黑神话、艾尔登法环、Hades），开启全新玩家红皮书。")
 
     # ---------------------------------------------------------------------
-    # 模块 2：个人历史记录看板
+    # 模块 2：个人探索历史清单
     # ---------------------------------------------------------------------
-    elif app_mode == "📜 个人历史记录看板":
-        st.subheader("📜 您的专属诊断历史病历本")
+    elif app_mode == "📜 个人探索历史清单":
+        st.subheader("📜 您的专属游戏探索足迹清单")
         user_history = history_db.get(user_id, [])
         if not user_history:
-            st.info("您当前账号还没有诊断过任何游戏，快去执行第一次自动化诊断吧！")
+            st.info("您当前还没有检索过任何游戏，快去左侧输入名字开启探索吧！")
         else:
             df = pd.DataFrame(user_history)
-            df.columns = ["游戏 AppID", "游戏名称", "诊断得分", "诊断执行时间"]
+            df.columns = ["游戏 AppID", "被搜索游戏名称", "探索解锁时间"]
             st.dataframe(df, use_container_width=True)
-            st.markdown("### 📊 我的数据追踪审计")
-            st.metric(label="总诊断游戏批次", value=f"{len(user_history)} 次")
+            st.metric(label="已解锁探索游戏总数", value=f"{len(user_history)} 款")
 
     # ---------------------------------------------------------------------
-    # 模块 3：游戏发行公共交流区（大广场）
+    # 模块 3：社区开荒开黑交流区（全站论坛）
     # ---------------------------------------------------------------------
-    elif app_mode == "💬 游戏发行公共交流区":
-        st.subheader("💬 大数据实验室 · 独立游戏发行综合全站论坛")
+    elif app_mode == "💬 社区开荒开黑交流区":
+        st.subheader("💬 大数据实验室 · 全能玩家开荒综合讨论广场")
+        st.write("在这里发布联机暗号、硬件配置探讨或全站动态。")
+        st.markdown("---")
+        
         global_comments = comments_db.get("global_forum", [])
         if not global_comments:
-            st.caption("大广场空空如也，发布第一条全站广播吧！")
+            st.caption("大广场空空如也，留下你的第一条组队邀请吧！")
         else:
             for c in global_comments:
-                st.markdown(f"**👤 {c['user']}** (`{c['time']}`):  \n{c['text']}")
+                st.markdown(f"**👤 玩家: {c['user']}** (`{c['time']}`):  \n{c['text']}")
                 st.markdown("---")
                 
         with st.form("global_form", clear_on_submit=True):
-            g_text = st.text_input("广播一条全新行业动态/心得：")
+            g_text = st.text_input("广播一条组队/求助动态：", placeholder="例如：有人来连深岩银河吗？带带萌新...")
             if st.form_submit_button("全站广播推送") and g_text.strip():
                 if "global_forum" not in comments_db: comments_db["global_forum"] = []
                 comments_db["global_forum"].append({
                     "user": user_name, "text": g_text, "time": datetime.now().strftime("%Y-%m-%d %H:%M")
                 })
                 save_json_db(COMMENT_DB_FILE, comments_db)
-                st.success("全站广播发布成功！")
+                st.success("全站动态广播成功！")
                 st.rerun()
