@@ -8,7 +8,7 @@ import urllib.parse
 from datetime import datetime
 
 # =========================================================================
-# 0. 核心工程化：本地文件型数据库（确保数据永久保存，重启不丢）
+# 0. 核心工程化：本地文件型数据库
 # =========================================================================
 USER_DB_FILE = "users_data.json"
 COMMENT_DB_FILE = "comments_data.json"
@@ -27,22 +27,29 @@ def save_json_db(file_path, data):
     with open(file_path, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
-# 初始化底层本地数据库
 users_db = load_json_db(USER_DB_FILE, {"admin": {"password": "123456", "name": "核心硬核玩家-老王"}})
 comments_db = load_json_db(COMMENT_DB_FILE, {})
 history_db = load_json_db(HISTORY_DB_FILE, {})
 
-# 初始化 Session 核心状态机
 if "current_user_id" not in st.session_state: st.session_state["current_user_id"] = None
 if "auth_page" not in st.session_state: st.session_state["auth_page"] = "login"
 if "last_search_result" not in st.session_state: st.session_state["last_search_result"] = None
 if "last_search_appid" not in st.session_state: st.session_state["last_search_appid"] = None
 
 # =========================================================================
-# 1. 数据科学通道：游戏检索、特征提炼与媒体链接生成
+# 1. 数据科学通道：带有“正版硬编码守卫”的搜索器
 # =========================================================================
 def search_steam_appid_by_name(game_name):
-    """通过游戏名称模糊检索 Steam 官方商店"""
+    """通过游戏名称模糊检索 Steam 官方商店 (加入正版防御机制)"""
+    # 🌟 绝招：针对核心大作进行强力拦截，防止山寨擦边球抢占权重
+    normalized_name = game_name.strip().lower()
+    if "黑神话" in normalized_name or "wukong" in normalized_name or "black myth" in normalized_name:
+        return [{"id": "2358720", "name": "Black Myth: Wukong (黑神话：悟空 正版)"}]
+    if "法环" in normalized_name or "elden" in normalized_name:
+        return [{"id": "1245620", "name": "ELDEN RING (艾尔登法环 正版)"}]
+    if "赛博朋克" in normalized_name or "cyberpunk" in normalized_name:
+        return [{"id": "1091500", "name": "Cyberpunk 2077 (赛博朋克2077 正版)"}]
+
     search_url = f"https://store.steampowered.com/api/storesearch/?term={game_name}&l=zh-cn&cc=HK"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     try:
@@ -50,7 +57,11 @@ def search_steam_appid_by_name(game_name):
         if response.status_code == 200 and response.json():
             items = response.json().get("items", [])
             results = []
-            for item in items[:5]: # 仅取最相关的前 5 个结果
+            for item in items[:5]:
+                # 过滤掉带有明显山寨嫌疑的敏感字眼
+                name_check = item.get("name", "").lower()
+                if "destiny man" in name_check:
+                    continue
                 results.append({
                     "id": str(item.get("id")),
                     "name": item.get("name")
@@ -73,20 +84,15 @@ def fetch_game_guide_details(app_id):
         game_data = data[str(app_id)]["data"]
         game_name = game_data.get("name", "未知独立游戏")
         
-        # 清洗复杂的 HTML 标签，提炼纯文本简介
         raw_desc = game_data.get("about_the_game", "暂无详细简介")
         clean_desc = re.sub(r'<[^>]+>', '', raw_desc).strip()
-        # 截取前 500 字作为精简特色简介
         short_desc = clean_desc if len(clean_desc) <= 500 else clean_desc[:500] + "..."
         
-        # 抓取游戏宣传主图
+        # 提取官方正版大图
         header_image = game_data.get("header_image", "")
         
-        # 抓取标签/分类
         genres = game_data.get("genres", [])
         tags = [g.get("description", "") for g in genres[:8]] or ["新游开荒"]
-        
-        # 开发商与运营商
         developers = ", ".join(game_data.get("developers", ["未知"]))
         
         return {
@@ -100,11 +106,10 @@ def fetch_game_guide_details(app_id):
         return None
 
 # =========================================================================
-# 2. 前端工程架构（Steam 游戏全能开荒助手）
+# 2. 前端工程架构
 # =========================================================================
 st.set_page_config(page_title="Steam Game Pioneer Hub", page_icon="🎮", layout="wide")
 
-# 🔒 情况 A：未登录状态 -> 锁定系统
 if st.session_state["current_user_id"] is None:
     st.title("🎮 Steam 游戏全能开荒助手 (Game Pioneer Hub)")
     st.caption("香港树仁大学应用数据科学系 · 大数据实验室玩家辅助研发项目")
@@ -140,12 +145,10 @@ if st.session_state["current_user_id"] is None:
             if st.button("返回登录界面"):
                 st.session_state["auth_page"] = "login"; st.rerun()
 
-# 🔓 情况 B：登录成功状态
 else:
     user_id = st.session_state["current_user_id"]
     user_name = users_db[user_id]["name"]
     
-    # 全局顶部状态栏
     col_t1, col_t2 = st.columns([4, 1])
     with col_t1:
         st.title("🎮 Steam 游戏全能开荒助手 (Pioneer Hub)")
@@ -162,9 +165,6 @@ else:
     st.sidebar.header("📁 核心向功能导航")
     app_mode = st.sidebar.radio("请选择核心模块", ["🔍 新游智能开荒检索", "📜 个人探索历史清单", "💬 社区开荒开黑交流区"])
     
-    # ---------------------------------------------------------------------
-    # 模块 1：新游智能开荒检索（核心功能区）
-    # ---------------------------------------------------------------------
     if app_mode == "🔍 新游智能开荒检索":
         st.sidebar.markdown("---")
         st.sidebar.header("📥 游戏大盘检索")
@@ -180,7 +180,6 @@ else:
                     st.sidebar.error("未找到关联游戏，请检查错别字或缩写。")
                     st.session_state["player_search_results"] = None
 
-        # 联动组件：在主面板渲染“游戏确认下拉选择器”
         if "player_search_results" in st.session_state and st.session_state["player_search_results"]:
             st.markdown("### 🎯 请锁定您想要检索的游戏目标")
             options = {f"🎮 {item['name']} (AppID: {item['id']})": item['id'] for item in st.session_state["player_search_results"]}
@@ -191,49 +190,43 @@ else:
                 with st.spinner("正在提取该游戏的核心数据资产与特色简介..."):
                     res = fetch_game_guide_details(target_appid)
                     if res:
-                        # 记录到探索历史数据库
                         if user_id not in history_db: history_db[user_id] = []
                         history_db[user_id].append({
                             "app_id": target_appid, "game_name": res["game_name"], "time": datetime.now().strftime("%Y-%m-%d %H:%M")
                         })
                         save_json_db(HISTORY_DB_FILE, history_db)
                         
-                        # 锁定至数据守卫缓存
                         st.session_state["last_search_result"] = res
                         st.session_state["last_search_appid"] = target_appid
                         st.session_state["player_search_results"] = None
                         st.rerun()
             st.markdown("---")
         
-        # 🌟 数据守卫渲染引擎：渲染游戏特色、简介、以及一键教学视频直达
         if st.session_state["last_search_result"] is not None:
             game_info = st.session_state["last_search_result"]
             current_appid = st.session_state["last_search_appid"]
             
-            # 分栏布局展现：左边图片，右边简介与标签
             col_img, col_txt = st.columns([1, 2])
             with col_img:
+                # 🌟 正版大图渲染安全策略
                 if game_info["header_image"]:
-                    st.image(game_info["header_image"], use_container_width=True)
+                    st.image(game_info["header_image"], use_container_width=True, caption="Steam 官方正版数字资产图片")
+                else:
+                    st.image("https://images.unsplash.com/photo-1612287230202-1bf1d85d1bdf?q=80&w=600&auto=format&fit=crop", use_container_width=True, caption="研发节点安全兜底壁纸")
                 st.markdown(f"**🏢 开发商：** `{game_info['developers']}`")
                 st.markdown(f"**🔢 官方 AppID：** `{current_appid}`")
             with col_txt:
                 st.subheader(f"🎮 游戏名称：{game_info['game_name']}")
-                # 动态生成标签云
                 tags_html = "".join([f"<span style='background-color:#007bff;color:white;padding:3px 8px;margin-right:5px;border-radius:3px;font-size:12px;'>{t}</span>" for t in game_info["tags"]])
                 st.markdown(f"**🏷️ 核心特色分类：** {tags_html}", unsafe_allow_html=True)
                 st.markdown(" ")
                 st.markdown(f"**📖 游戏官方简介与背景：** \n{game_info['short_desc']}")
             
-            # 🚀 【震撼重头戏】：动态跳转教学视频平台链接生成区
             st.markdown("---")
             st.markdown("### 📺 玩家速成快捷键：一键空降全网保姆级教学视频平台")
             st.write("系统已为您基于当前游戏名称，智能动态编码封装了最佳开荒搜索矩阵。点击下方平台按钮即可跳转学习：")
             
-            # 对游戏名进行 URL 安全编码，防止中文字符或特殊符号导致链接断裂
             encoded_game_name = urllib.parse.quote(game_info['game_name'])
-            
-            # 构建智能检索矩阵链接
             bilibili_url = f"https://search.bilibili.com/all?keyword={encoded_game_name}%20%E6%95%99%E5%AD%A6%E6%94%BB%E7%95%A5"
             youtube_url = f"https://www.youtube.com/results?search_query={encoded_game_name}+guide+walkthrough"
             
@@ -250,12 +243,11 @@ else:
                 st.markdown(f"""
                 <a href="{youtube_url}" target="_blank" style="text-decoration: none;">
                     <div style="background-color: #ff0000; color: white; padding: 15px; border-radius: 8px; text-align: center; font-weight: bold; cursor: pointer; box-shadow: 2px 2px 5px rgba(0,0,0,0.1);">
-                        🎬 YouTube Global | 调取全球【{game_info['game_name']}'] 100% 极限速通与机制拆解
+                        🎬 YouTube Global | 调取全球【{game_info['game_name']}】100% 极限速通与机制拆解
                     </div>
                 </a>
                 """, unsafe_allow_html=True)
             
-            # 🌟 玩家评论互动专区
             st.markdown("---")
             st.subheader(f"💬 【{game_info['game_name']}】玩家互助、开黑与踩坑反馈区")
             
@@ -280,9 +272,6 @@ else:
             if "player_search_results" not in st.session_state or not st.session_state["player_search_results"]:
                 st.info("💡 开荒助手已就绪。请在左侧侧边栏输入任何你想玩的游戏名称（支持中文/英文，如：黑神话、艾尔登法环、Hades），开启全新玩家红皮书。")
 
-    # ---------------------------------------------------------------------
-    # 模块 2：个人探索历史清单
-    # ---------------------------------------------------------------------
     elif app_mode == "📜 个人探索历史清单":
         st.subheader("📜 您的专属游戏探索足迹清单")
         user_history = history_db.get(user_id, [])
@@ -294,9 +283,6 @@ else:
             st.dataframe(df, use_container_width=True)
             st.metric(label="已解锁探索游戏总数", value=f"{len(user_history)} 款")
 
-    # ---------------------------------------------------------------------
-    # 模块 3：社区开荒开黑交流区（全站论坛）
-    # ---------------------------------------------------------------------
     elif app_mode == "💬 社区开荒开黑交流区":
         st.subheader("💬 大数据实验室 · 全能玩家开荒综合讨论广场")
         st.write("在这里发布联机暗号、硬件配置探讨或全站动态。")
