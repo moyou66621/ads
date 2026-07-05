@@ -107,7 +107,7 @@ st.set_page_config(page_title="Steam CRO Full-Stack SaaS", page_icon="🚀", lay
 # 🔒 情况 A：未登录状态 -> 锁定系统，强制弹出注册/登录表单
 if st.session_state["current_user_id"] is None:
     st.title("🚀 Steam 商店页面转化率优化 SaaS 平台 (CRO Engine)")
-    st.caption("香港树仁大学应用数据科学系 · 大数据实验室研发项目")
+    st.caption("树仁大学应用数据科学系 ")
     st.markdown("---")
     
     _, col_b, _ = st.columns([1, 2, 1])
@@ -134,22 +134,20 @@ if st.session_state["current_user_id"] is None:
                 elif r_id in users_db: st.error("该账号已被注册，请更换账号 ID。")
                 else:
                     users_db[r_id] = {"password": r_pwd, "name": r_name}
-                    save_json_db(USER_DB_FILE, users_db) # 持久化存盘
+                    save_json_db(USER_DB_FILE, users_db) 
                     st.success("注册成功！数据已写入本地数据库，请切换回登录。")
                     st.session_state["auth_page"] = "login"; st.rerun()
             if st.button("返回登录界面"):
                 st.session_state["auth_page"] = "login"; st.rerun()
 
-# 🔓 情况 B：登录成功状态 -> 解锁进入全功能分布式后台
 else:
     user_id = st.session_state["current_user_id"]
     user_name = users_db[user_id]["name"]
     
-    # 全局顶部状态栏
     col_t1, col_t2 = st.columns([4, 1])
     with col_t1:
         st.title("🚀 Steam 商店页面转化率优化 SaaS 平台")
-        st.write(f"当前在线研究员：**{user_name}** (`ID: {user_id}`) | 节点状态：`树仁大学大数据实验室公网授权节点`")
+        st.write(f"当前在线研究员：**{user_name}** (`ID: {user_id}`) | 节点状态：`树仁大学`")
     with col_t2:
         st.write(" ")
         if st.button("⚙️ 安全退出系统", use_container_width=True):
@@ -184,27 +182,30 @@ else:
                     })
                     save_json_db(HISTORY_DB_FILE, history_db)
                     
-                    # 2. 【核心复杂化改造】写入状态守卫，防止刷新被冲掉
+                    # 2. 写入状态守卫，防止刷新被冲掉
                     st.session_state["last_diag_result"] = report
                     st.session_state["last_diag_appid"] = input_appid
                     st.session_state["last_game_features"] = res
                 else:
                     st.error("无法调取此 AppID 的数据，请检查该游戏是否存在或已被 Steam 锁区。")
         
-        # 🌟 状态守卫渲染引擎：只要缓存里有数据，就强行保持显示，不受页面刷新和表单提交干扰
+        # 🌟 状态守卫渲染引擎
         if st.session_state["last_diag_result"] is not None:
             saved_report = st.session_state["last_diag_result"]
             saved_appid = st.session_state["last_diag_appid"]
             saved_features = st.session_state["last_game_features"]
             
-            # 渲染诊断抬头与得分
+            # 渲染诊断抬头与得分 (此处已完全修复危险的 unsafe_allow_html 问题)
             c1, c2 = st.columns([1, 2])
             with c1:
                 st.markdown("### 🎯 转化潜力综合评分")
                 scr = saved_report["score"]
-                if scr >= 80: st.success(f"<h1>{scr}分</h1> 质量优秀！", unsafe_allow_html=True)
-                elif scr >= 50: st.warning(f"<h1>{scr}分</h1> 亟待优化！", unsafe_allow_html=True)
-                else: st.error(f"<h1>{scr}分</h1> 转化潜力极低！", unsafe_allow_html=True)
+                if scr >= 80:
+                    st.markdown(f"<div style='background-color: #d4edda; color: #155724; padding: 15px; border-radius: 5px; border-left: 5px solid #28a745;'><h1 style='margin:0;'>{scr} 分</h1><p style='margin:5px 0 0 0;'>🎉 质量优秀，继续保持！</p></div>", unsafe_allow_html=True)
+                elif scr >= 50:
+                    st.markdown(f"<div style='background-color: #fff3cd; color: #856404; padding: 15px; border-radius: 5px; border-left: 5px solid #ffc107;'><h1 style='margin:0;'>{scr} 分</h1><p style='margin:5px 0 0 0;'>🟡 页面有较大优化空间。</p></div>", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"<div style='background-color: #f8d7da; color: #721c24; padding: 15px; border-radius: 5px; border-left: 5px solid #dc3545;'><h1 style='margin:0;'>{scr} 分</h1><p style='margin:5px 0 0 0;'>🚨 存在严重短板，亟需修改！</p></div>", unsafe_allow_html=True)
             with c2:
                 st.subheader(f"🎮 游戏：{saved_features['game_name']} (AppID: {saved_appid})")
                 st.write(f"**分类标签：** {' | '.join(saved_features['tags'])}")
@@ -237,9 +238,8 @@ else:
                 for c in game_comments:
                     st.markdown(f"**👤 研究员: {c['user']}** (`{c['time']}`):  \n> {c['text']}")
             
-            # 提交评论表单（因为有上面的状态守卫，点击提交不会导致诊断结果消失）
             with st.form("comment_form", clear_on_submit=True):
-                new_comment = st.text_area("添加你的商业调优建议或避雷分析：", placeholder="例如：此游戏建议将宣传视频的战斗高潮剪辑到前3秒...")
+                new_comment = st.text_area("添加你的商业调优建议或避雷分析：")
                 if st.form_submit_button("发布到该游戏讨论板") and new_comment.strip():
                     if str(saved_appid) not in comments_db: comments_db[str(saved_appid)] = []
                     comments_db[str(saved_appid)].append({
@@ -249,7 +249,7 @@ else:
                     st.success("评论已成功同步至该游戏主板！")
                     st.rerun()
         else:
-            st.info("💡 系统就绪。请在左侧侧边栏输入任意 Steam 游戏 AppID（例如：黑神话悟空、Cyberpunk 2077），并点击开始全方位诊断。")
+            st.info("💡 系统就绪。请在左侧侧边栏输入任意 Steam 游戏 AppID 并点击开始全方位诊断。")
 
     # ---------------------------------------------------------------------
     # 模块 2：个人历史记录看板
@@ -262,13 +262,9 @@ else:
         if not user_history:
             st.info("您当前账号还没有诊断过任何游戏，快去执行第一次自动化诊断吧！")
         else:
-            # 转化为 DataFrame 展示
             df = pd.DataFrame(user_history)
             df.columns = ["游戏 AppID", "游戏名称", "诊断得分", "诊断执行时间"]
-            
             st.dataframe(df, use_container_width=True)
-            
-            # 增加趣味性数据科学指标
             st.markdown("### 📊 我的数据追踪审计")
             st.metric(label="总诊断游戏批次", value=f"{len(user_history)} 次")
 
@@ -280,7 +276,6 @@ else:
         st.write("这里是全站公共大广场。所有注册的开发者和实习研究员都可以在这里发布全站广播动态。")
         st.markdown("---")
         
-        # 渲染全站大广场留言
         global_comments = comments_db.get("global_forum", [])
         if not global_comments:
             st.caption("大广场空空如也，发布第一条全站广播吧！")
@@ -290,7 +285,7 @@ else:
                 st.markdown("---")
                 
         with st.form("global_form", clear_on_submit=True):
-            g_text = st.text_input("广播一条全新行业动态/心得：", placeholder="分享一下你今天发现的Steam流量机制...")
+            g_text = st.text_input("广播一条全新行业动态/心得：")
             if st.form_submit_button("全站广播推送") and g_text.strip():
                 if "global_forum" not in comments_db: comments_db["global_forum"] = []
                 comments_db["global_forum"].append({
