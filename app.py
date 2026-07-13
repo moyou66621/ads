@@ -106,35 +106,35 @@ st.set_page_config(page_title="Steam Game Pioneer Hub", page_icon="🎮", layout
 
 if st.session_state["current_user_id"] is None:
     st.title("🎮 Steam 游戏全能开荒助手 (Game Pioneer Hub)")
-    st.caption("香港树仁大学应用数据科学系 · 大数据实验室玩家辅助研发项目")
+    st.caption("香港树仁大学应用数据科学系 ")
     st.markdown("---")
     
     _, col_b, _ = st.columns([1, 2, 1])
     with col_b:
         if st.session_state["auth_page"] == "login":
-            st.subheader("🔑 玩家/研究员登录后台")
+            st.subheader("🔑 用户登录")
             u_id = st.text_input("账号 ID", placeholder="请输入注册账号")
             u_pwd = st.text_input("登录密码", type="password", placeholder="请输入密码")
-            if st.button("进入开荒中心", use_container_width=True):
+            if st.button("进入", use_container_width=True):
                 if u_id in users_db and users_db[u_id]["password"] == u_pwd:
                     st.session_state["current_user_id"] = u_id
                     st.rerun()
                 else: st.error("账号或密码不匹配，请重试。")
-            if st.button("新玩家加入？点击一键注册"):
+            if st.button("新用户？点击一键注册"):
                 st.session_state["auth_page"] = "register"; st.rerun()
                 
         elif st.session_state["auth_page"] == "register":
-            st.subheader("📝 玩家账户注册")
-            r_id = st.text_input("设置玩家账号 (英文字母/数字)")
+            st.subheader("📝 账户注册")
+            r_id = st.text_input("设置用户账号 (英文字母/数字)")
             r_name = st.text_input("游戏圈个性昵称 (展示用)")
             r_pwd = st.text_input("设置密码", type="password")
             if st.button("同步注册信息", use_container_width=True):
                 if not r_id or not r_name or not r_pwd: st.error("所有注册字段均不能为空！")
-                elif r_id in users_db: st.error("该账号已被注册，请更换玩家 ID。")
+                elif r_id in users_db: st.error("该账号已被注册，请更换 ID。")
                 else:
                     users_db[r_id] = {"password": r_pwd, "name": r_name}
                     save_json_db(USER_DB_FILE, users_db)
-                    st.success("玩家注册成功！请切换回登录。")
+                    st.success("注册成功！请切换回登录。")
                     st.session_state["auth_page"] = "login"; st.rerun()
             if st.button("返回登录界面"):
                 st.session_state["auth_page"] = "login"; st.rerun()
@@ -146,10 +146,10 @@ else:
     col_t1, col_t2 = st.columns([4, 1])
     with col_t1:
         st.title("🎮 Steam 游戏全能开荒助手 (Pioneer Hub)")
-        st.write(f"当前在线玩家：**{user_name}** | 实验室系统节点：`树仁应用数据科学大数据实验室监控中`")
+        st.write(f"当前用户：**{user_name}** | 实验室系统节点：`树仁应用数据科学大数据实验室`")
     with col_t2:
         st.write(" ")
-        if st.button("⚙️ 安全退出助手", use_container_width=True):
+        if st.button("⚙️ 退出助手", use_container_width=True):
             st.session_state["current_user_id"] = None
             st.session_state["last_search_result"] = None
             st.session_state["last_search_appid"] = None
