@@ -47,10 +47,11 @@ def log_activity(username, action):
     save_json_db(ACTIVITY_LOG_FILE, db)
 
 # ==========================================
-# 2. 用户注册 + 扩展问卷（已移除 region 字段）
+# 2. 用户注册 + 扩展问卷
 # ==========================================
 def show_registration_survey():
-    st.subheader("🎮 欢迎加入游戏社区！请完成玩家档案")
+    st.subheader("🧭 欢迎加入 Compass！请完成玩家档案")
+    st.caption("用数据指引你的游戏之路")
 
     with st.form("registration_form"):
         col1, col2 = st.columns(2)
@@ -60,7 +61,7 @@ def show_registration_survey():
             st.write("")
 
         st.markdown("---")
-        st.caption("📊 以下数据将用于社区数据科学分析，仅展示统计结果")
+        st.caption("📊 以下数据将用于 Compass 数据科学分析，仅展示统计结果")
 
         # 基础人口统计
         col1, col2 = st.columns(2)
@@ -112,14 +113,13 @@ def show_registration_survey():
         with col3:
             completionist = st.slider("全收集/成就追求度", 1, 10, 5)
 
-        submitted = st.form_submit_button("🚀 建立档案")
+        submitted = st.form_submit_button("🚀 加入 Compass")
 
         if submitted:
             if not username.strip():
                 st.error("请输入昵称！")
                 return None
 
-            # 保存用户数据（注意：已移除 region 字段）
             user_data = {
                 "username": username.strip(),
                 "gender": gender,
@@ -141,15 +141,15 @@ def show_registration_survey():
             save_json_db(USER_DATA_FILE, db)
             log_activity(username.strip(), "注册")
 
-            st.success(f"✅ 欢迎 {username}！你的数据已加入社区分析库")
+            st.success(f"✅ 欢迎来到 Compass，{username}！你的数据已加入社区分析库")
             return username
     return None
 
 # ==========================================
-# 3. 深度数据分析看板（所有引用 region 的地方已移除）
+# 3. 深度数据分析看板
 # ==========================================
 def show_deep_data_insights():
-    st.subheader("📊 社区数据科学看板")
+    st.subheader("📊 Compass 数据科学看板")
     st.caption("基于真实玩家数据的统计建模、聚类分析、关联挖掘与预测")
 
     user_db = load_json_db(USER_DATA_FILE)
@@ -157,7 +157,7 @@ def show_deep_data_insights():
     activity_db = load_json_db(ACTIVITY_LOG_FILE)
 
     if len(user_db) == 0:
-        st.info("📭 暂无玩家数据，等待第一位注册玩家...")
+        st.info("📭 Compass 暂无玩家数据，等待第一位开拓者...")
         return
 
     if len(user_db) < 5:
@@ -165,9 +165,11 @@ def show_deep_data_insights():
 
     df = pd.DataFrame(user_db).T.reset_index().rename(columns={"index": "用户名"})
 
-    # ---------- 分析 1：用户分群聚类 ----------
+    # ====================================================================
+    # 分析 1：用户分群聚类（K-Means）
+    # ====================================================================
     st.markdown("---")
-    st.subheader("🧩 分析 1：玩家智能分群（K-Means 聚类）")
+    st.subheader("🧩 分析 1：Compass 玩家智能分群（K-Means 聚类）")
     st.caption("基于游戏行为和心理特征，将玩家自动分为 4 类典型群体")
 
     if len(user_db) >= 8:
@@ -253,9 +255,12 @@ def show_deep_data_insights():
     else:
         st.info(f"需要至少 8 位玩家才能进行聚类分析，当前 {len(user_db)} 位。")
 
-    # ---------- 分析 2：基础统计图表 ----------
+    # ====================================================================
+    # 分析 2：基础统计图表
+    # ====================================================================
     st.markdown("---")
-    st.subheader("📈 分析 2：社区基础统计画像")
+    st.subheader("📈 分析 2：Compass 社区基础统计画像")
+    st.caption("玩家群体的基本特征分布")
 
     col1, col2 = st.columns(2)
 
@@ -296,9 +301,12 @@ def show_deep_data_insights():
         fig6.update_layout(height=300, title="弃坑主要原因", showlegend=False)
         st.plotly_chart(fig6, use_container_width=True)
 
-    # ---------- 分析 3：交叉分析热力图 ----------
+    # ====================================================================
+    # 分析 3：交叉分析热力图
+    # ====================================================================
     st.markdown("---")
     st.subheader("🔍 分析 3：交叉分析 - 游戏类型 × 弃坑原因")
+    st.caption("深度洞察：不同类型游戏的玩家主要因何弃坑")
 
     if len(user_db) >= 5:
         cross_data = []
@@ -321,11 +329,14 @@ def show_deep_data_insights():
             fig7.update_layout(height=400)
             st.plotly_chart(fig7, use_container_width=True)
 
-            st.caption("💡 颜色越深表示该类型玩家更容易因该原因弃坑。")
+            st.caption("💡 颜色越深表示该类型玩家更容易因该原因弃坑。Compass 据此针对性优化社区内容。")
 
-    # ---------- 分析 4：时间序列 ----------
+    # ====================================================================
+    # 分析 4：时间序列 - 社区活跃度趋势
+    # ====================================================================
     st.markdown("---")
-    st.subheader("📉 分析 4：社区活跃度趋势")
+    st.subheader("📉 分析 4：Compass 社区活跃度趋势")
+    st.caption("追踪社区注册和活跃趋势，识别增长阶段")
 
     if activity_db:
         activity_df = pd.DataFrame(activity_db).T
@@ -335,15 +346,30 @@ def show_deep_data_insights():
 
         if len(daily_activity) > 1:
             daily_activity["MA7"] = daily_activity["活跃数"].rolling(window=min(7, len(daily_activity)), min_periods=1).mean()
+
             fig8 = go.Figure()
             fig8.add_trace(go.Scatter(x=daily_activity["date"], y=daily_activity["活跃数"], mode="lines+markers", name="日活跃"))
             fig8.add_trace(go.Scatter(x=daily_activity["date"], y=daily_activity["MA7"], mode="lines", name="移动平均", line=dict(dash="dash")))
             fig8.update_layout(height=300, xaxis_title="日期", yaxis_title="活跃用户数")
             st.plotly_chart(fig8, use_container_width=True)
 
-    # ---------- 分析 5：关联规则 ----------
+            if len(daily_activity) > 7:
+                recent_growth = (daily_activity["MA7"].iloc[-1] - daily_activity["MA7"].iloc[-7]) / daily_activity["MA7"].iloc[-7] * 100 if daily_activity["MA7"].iloc[-7] > 0 else 0
+                if recent_growth > 10:
+                    st.success(f"📈 Compass 处于快速增长阶段，近7天增长 {recent_growth:.1f}%")
+                elif recent_growth < -10:
+                    st.warning(f"📉 Compass 活跃度下降，近7天下降 {abs(recent_growth):.1f}%")
+                else:
+                    st.info(f"📊 Compass 活跃度稳定，近7天变化 {recent_growth:.1f}%")
+    else:
+        st.info("暂无活跃数据，等待玩家登录...")
+
+    # ====================================================================
+    # 分析 5：关联规则发现
+    # ====================================================================
     st.markdown("---")
     st.subheader("🔗 分析 5：游戏类型关联规则")
+    st.caption("发现玩家偏好模式：喜欢某类游戏的人也倾向喜欢另一类")
 
     try:
         all_types = df["game_types"].explode().dropna().unique().tolist()
@@ -367,24 +393,39 @@ def show_deep_data_insights():
             st.write("**最常被同时喜欢的游戏类型组合**")
             for _, row in pairs_df.iterrows():
                 st.write(f"- **{row['类型A']}** ↔ **{row['类型B']}**: 相似度 {row['相似度']:.2%}")
-    except:
-        st.info("关联分析需要更多数据。")
 
-    with st.expander("📋 查看问卷数据汇总表"):
+            selected_type = st.selectbox("🔮 Compass 类型推荐器：选择一个游戏类型", all_types)
+            if selected_type:
+                recs = type_sim_df[selected_type].sort_values(ascending=False).head(4).index.tolist()
+                recs = [r for r in recs if r != selected_type]
+                if recs:
+                    st.success(f"喜欢《{selected_type}》的玩家也喜欢：{'  |  '.join(recs)}")
+                else:
+                    st.info("暂无足够数据推荐。")
+    except Exception as e:
+        st.info("关联分析需要更多玩家数据。")
+
+    # ====================================================================
+    # 页面底部：问卷数据汇总
+    # ====================================================================
+    st.markdown("---")
+    with st.expander("📋 查看 Compass 问卷数据汇总表"):
         st.dataframe(df, use_container_width=True)
+        st.caption(f"共 {len(df)} 位玩家，{len(df.columns)} 个数据字段")
 
 # ==========================================
 # 4. 攻略发布 + 社区功能
 # ==========================================
 def show_publish_strategy():
-    st.subheader("✍️ 发布游戏攻略/心得")
+    st.subheader("✍️ 在 Compass 发布游戏攻略/心得")
+    st.caption("帮助新玩家找到方向，你的分享将成为别人的指南针")
 
     with st.form("strategy_form"):
         game_name = st.text_input("游戏名称")
         title = st.text_input("攻略标题")
         tags = st.multiselect("标签", ["新手向", "进阶", "避坑指南", "速通", "全收集", "剧情解析", "职业攻略", "其他"])
         content = st.text_area("攻略内容（支持Markdown）", height=300)
-        submitted = st.form_submit_button("📤 发布")
+        submitted = st.form_submit_button("📤 发布到 Compass")
 
         if submitted and game_name and title and content:
             db = load_json_db(STRATEGY_DB_FILE)
@@ -399,14 +440,16 @@ def show_publish_strategy():
             }
             save_json_db(STRATEGY_DB_FILE, db)
             log_activity(st.session_state.get("username", "匿名"), "发布攻略")
-            st.success("🎉 攻略发布成功！")
+            st.success("🎉 攻略发布成功！你的分享将成为其他玩家的指南针！")
             st.balloons()
 
 def show_strategy_list():
-    st.subheader("📚 社区攻略库")
+    st.subheader("📚 Compass 攻略库")
+    st.caption("每一位玩家的经验，都是新手的指南针")
+
     db = load_json_db(STRATEGY_DB_FILE)
     if not db:
-        st.info("暂无攻略，快来发布第一篇吧！")
+        st.info("📭 Compass 攻略库暂无内容，快来发布第一篇攻略吧！")
         return
 
     search_game = st.text_input("🔍 按游戏名筛选", placeholder="输入游戏名称...")
@@ -423,16 +466,17 @@ def show_strategy_list():
 def show_user_profile():
     username = st.session_state.get("username", "")
     if not username:
-        st.warning("请先注册")
+        st.warning("请先注册 Compass")
         return
 
     db = load_json_db(USER_DATA_FILE)
     if username not in db:
-        st.warning("用户数据未找到")
+        st.warning("用户数据未找到，请重新注册")
         return
 
     user_data = db[username]
-    st.subheader(f"👤 {username} 的玩家档案")
+    st.subheader(f"🧭 {username} 的 Compass 玩家档案")
+    st.caption("你的数据正在帮助 Compass 更好地理解玩家群体")
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -466,7 +510,11 @@ def show_user_profile():
 # 6. 主程序
 # ==========================================
 def main():
-    st.set_page_config(page_title="🎮 游戏玩家社区", page_icon="🎮", layout="wide")
+    st.set_page_config(
+        page_title="Compass · 游戏玩家社区",
+        page_icon="🧭",
+        layout="wide"
+    )
 
     if "username" not in st.session_state:
         st.session_state.username = None
@@ -474,10 +522,12 @@ def main():
         st.session_state.registered = False
 
     with st.sidebar:
-        st.title("🎮 游戏玩家社区")
+        st.title("🧭 Compass")
+        st.caption("用数据指引你的游戏之路")
+        st.markdown("---")
 
         if not st.session_state.registered:
-            st.info("欢迎新玩家！请先完成注册")
+            st.info("欢迎新玩家！请先加入 Compass")
             username = show_registration_survey()
             if username:
                 st.session_state.username = username
@@ -492,16 +542,16 @@ def main():
 
             st.markdown("---")
             user_db = load_json_db(USER_DATA_FILE)
-            st.metric("👥 社区总人数", len(user_db))
+            st.metric("👥 Compass 总人数", len(user_db))
             strategy_db = load_json_db(STRATEGY_DB_FILE)
             st.metric("📝 攻略总数", len(strategy_db))
 
     if st.session_state.registered:
         tabs = st.tabs([
-            "📊 数据科学看板",
+            "📊 Compass 数据看板",
             "📚 攻略库",
             "✍️ 发布攻略",
-            "👤 我的画像"
+            "👤 我的档案"
         ])
 
         with tabs[0]:
@@ -516,7 +566,7 @@ def main():
         with tabs[3]:
             show_user_profile()
     else:
-        st.info("👈 请先在左侧完成注册问卷，解锁社区全部功能")
+        st.info("👈 请先在左侧完成注册，加入 Compass 社区")
 
 if __name__ == "__main__":
     main()
