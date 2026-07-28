@@ -47,7 +47,7 @@ def log_activity(username, action):
     save_json_db(ACTIVITY_LOG_FILE, db)
 
 # ==========================================
-# 2. 用户注册 + 扩展问卷
+# 2. 用户注册 + 扩展问卷（已移除 region 字段）
 # ==========================================
 def show_registration_survey():
     st.subheader("🎮 欢迎加入游戏社区！请完成玩家档案")
@@ -119,6 +119,7 @@ def show_registration_survey():
                 st.error("请输入昵称！")
                 return None
 
+            # 保存用户数据（注意：已移除 region 字段）
             user_data = {
                 "username": username.strip(),
                 "gender": gender,
@@ -145,7 +146,7 @@ def show_registration_survey():
     return None
 
 # ==========================================
-# 3. 深度数据分析看板
+# 3. 深度数据分析看板（所有引用 region 的地方已移除）
 # ==========================================
 def show_deep_data_insights():
     st.subheader("📊 社区数据科学看板")
@@ -164,9 +165,7 @@ def show_deep_data_insights():
 
     df = pd.DataFrame(user_db).T.reset_index().rename(columns={"index": "用户名"})
 
-    # ====================================================================
-    # 分析 1：用户分群聚类（K-Means）
-    # ====================================================================
+    # ---------- 分析 1：用户分群聚类 ----------
     st.markdown("---")
     st.subheader("🧩 分析 1：玩家智能分群（K-Means 聚类）")
     st.caption("基于游戏行为和心理特征，将玩家自动分为 4 类典型群体")
@@ -254,12 +253,9 @@ def show_deep_data_insights():
     else:
         st.info(f"需要至少 8 位玩家才能进行聚类分析，当前 {len(user_db)} 位。")
 
-    # ====================================================================
-    # 分析 2：基础统计图表
-    # ====================================================================
+    # ---------- 分析 2：基础统计图表 ----------
     st.markdown("---")
     st.subheader("📈 分析 2：社区基础统计画像")
-    st.caption("玩家群体的基本特征分布")
 
     col1, col2 = st.columns(2)
 
@@ -300,12 +296,9 @@ def show_deep_data_insights():
         fig6.update_layout(height=300, title="弃坑主要原因", showlegend=False)
         st.plotly_chart(fig6, use_container_width=True)
 
-    # ====================================================================
-    # 分析 3：交叉分析热力图
-    # ====================================================================
+    # ---------- 分析 3：交叉分析热力图 ----------
     st.markdown("---")
     st.subheader("🔍 分析 3：交叉分析 - 游戏类型 × 弃坑原因")
-    st.caption("深度洞察：不同类型游戏的玩家主要因何弃坑")
 
     if len(user_db) >= 5:
         cross_data = []
@@ -328,14 +321,11 @@ def show_deep_data_insights():
             fig7.update_layout(height=400)
             st.plotly_chart(fig7, use_container_width=True)
 
-            st.caption("💡 颜色越深表示该类型玩家更容易因该原因弃坑。可以据此针对性优化社区内容。")
+            st.caption("💡 颜色越深表示该类型玩家更容易因该原因弃坑。")
 
-    # ====================================================================
-    # 分析 4：时间序列 - 社区活跃度趋势
-    # ====================================================================
+    # ---------- 分析 4：时间序列 ----------
     st.markdown("---")
     st.subheader("📉 分析 4：社区活跃度趋势")
-    st.caption("追踪社区注册和活跃趋势，识别增长阶段")
 
     if activity_db:
         activity_df = pd.DataFrame(activity_db).T
@@ -345,30 +335,15 @@ def show_deep_data_insights():
 
         if len(daily_activity) > 1:
             daily_activity["MA7"] = daily_activity["活跃数"].rolling(window=min(7, len(daily_activity)), min_periods=1).mean()
-
             fig8 = go.Figure()
             fig8.add_trace(go.Scatter(x=daily_activity["date"], y=daily_activity["活跃数"], mode="lines+markers", name="日活跃"))
             fig8.add_trace(go.Scatter(x=daily_activity["date"], y=daily_activity["MA7"], mode="lines", name="移动平均", line=dict(dash="dash")))
             fig8.update_layout(height=300, xaxis_title="日期", yaxis_title="活跃用户数")
             st.plotly_chart(fig8, use_container_width=True)
 
-            if len(daily_activity) > 7:
-                recent_growth = (daily_activity["MA7"].iloc[-1] - daily_activity["MA7"].iloc[-7]) / daily_activity["MA7"].iloc[-7] * 100 if daily_activity["MA7"].iloc[-7] > 0 else 0
-                if recent_growth > 10:
-                    st.success(f"📈 社区处于快速增长阶段，近7天增长 {recent_growth:.1f}%")
-                elif recent_growth < -10:
-                    st.warning(f"📉 社区活跃度下降，近7天下降 {abs(recent_growth):.1f}%")
-                else:
-                    st.info(f"📊 社区活跃度稳定，近7天变化 {recent_growth:.1f}%")
-    else:
-        st.info("暂无活跃数据，等待玩家登录...")
-
-    # ====================================================================
-    # 分析 5：关联规则发现
-    # ====================================================================
+    # ---------- 分析 5：关联规则 ----------
     st.markdown("---")
     st.subheader("🔗 分析 5：游戏类型关联规则")
-    st.caption("发现玩家偏好模式：喜欢某类游戏的人也倾向喜欢另一类")
 
     try:
         all_types = df["game_types"].explode().dropna().unique().tolist()
@@ -392,25 +367,11 @@ def show_deep_data_insights():
             st.write("**最常被同时喜欢的游戏类型组合**")
             for _, row in pairs_df.iterrows():
                 st.write(f"- **{row['类型A']}** ↔ **{row['类型B']}**: 相似度 {row['相似度']:.2%}")
+    except:
+        st.info("关联分析需要更多数据。")
 
-            selected_type = st.selectbox("🔮 类型推荐器：选择一个游戏类型", all_types)
-            if selected_type:
-                recs = type_sim_df[selected_type].sort_values(ascending=False).head(4).index.tolist()
-                recs = [r for r in recs if r != selected_type]
-                if recs:
-                    st.success(f"喜欢《{selected_type}》的玩家也喜欢：{'  |  '.join(recs)}")
-                else:
-                    st.info("暂无足够数据推荐。")
-    except Exception as e:
-        st.info("关联分析需要更多玩家数据。")
-
-    # ====================================================================
-    # 页面底部：问卷数据汇总
-    # ====================================================================
-    st.markdown("---")
     with st.expander("📋 查看问卷数据汇总表"):
         st.dataframe(df, use_container_width=True)
-        st.caption(f"共 {len(df)} 位玩家，{len(df.columns)} 个数据字段")
 
 # ==========================================
 # 4. 攻略发布 + 社区功能
