@@ -1,3 +1,9 @@
 beautifulsoup4
 lxml
 requests
+streamlit
+pandas
+numpy
+plotly
+scipy
+scikit-learn
