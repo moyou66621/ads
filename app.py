@@ -68,8 +68,6 @@ def show_registration_survey():
             gender = st.radio("性别", ["男", "女", "不愿透露"], horizontal=True)
         with col2:
             age = st.selectbox("年龄段", ["18岁以下", "18-24岁", "25-30岁", "31-35岁", "36岁以上"])
-        with col3:
-            region = st.selectbox("所在地区", ["华北", "华东", "华南", "西南", "西北", "东北", "海外"])
 
         # 游戏行为
         st.markdown("#### 🎯 游戏行为")
