@@ -1,316 +1,643 @@
 import streamlit as st
 import pandas as pd
-import requests
-import re
+import numpy as np
 import json
 import os
-import urllib.parse
-from datetime import datetime
+from datetime import datetime, timedelta
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import scipy.stats as stats
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, confusion_matrix
+import warnings
+warnings.filterwarnings('ignore')
 
-# =========================================================================
-# 0. 核心工程化：本地文件型数据库
-# =========================================================================
-USER_DB_FILE = "users_data.json"
-COMMENT_DB_FILE = "comments_data.json"
-HISTORY_DB_FILE = "history_data.json"
+# ==========================================
+# 1. 数据存储配置
+# ==========================================
+USER_DATA_FILE = "user_data.json"
+COMMENT_DB_FILE = "comments_db.json"
+STRATEGY_DB_FILE = "strategies_db.json"
+ACTIVITY_LOG_FILE = "activity_log.json"
 
-def load_json_db(file_path, default_value):
-    if not os.path.exists(file_path):
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(default_value, f, ensure_ascii=False, indent=4)
-        return default_value
-    with open(file_path, 'r', encoding='utf-8') as f:
-        try: return json.load(f)
-        except: return default_value
+def load_json_db(file_path):
+    if os.path.exists(file_path):
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
 
 def save_json_db(file_path, data):
-    with open(file_path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
-users_db = load_json_db(USER_DB_FILE, {"admin": {"password": "123456", "name": "核心硬核玩家-老王"}})
-comments_db = load_json_db(COMMENT_DB_FILE, {})
-history_db = load_json_db(HISTORY_DB_FILE, {})
+def log_activity(username, action):
+    """记录用户行为日志（用于时间序列分析）"""
+    db = load_json_db(ACTIVITY_LOG_FILE)
+    log_id = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{username}"
+    db[log_id] = {
+        "username": username,
+        "action": action,
+        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    save_json_db(ACTIVITY_LOG_FILE, db)
 
-if "current_user_id" not in st.session_state: st.session_state["current_user_id"] = None
-if "auth_page" not in st.session_state: st.session_state["auth_page"] = "login"
-if "last_search_result" not in st.session_state: st.session_state["last_search_result"] = None
-if "last_search_appid" not in st.session_state: st.session_state["last_search_appid"] = None
+# ==========================================
+# 2. 用户注册 + 扩展问卷
+# ==========================================
+def show_registration_survey():
+    st.subheader("🎮 欢迎加入游戏社区！请完成玩家档案")
 
-# =========================================================================
-# 1. 数据科学通道：带有“正版硬编码守卫”的搜索器
-# =========================================================================
-def search_steam_appid_by_name(game_name):
-    normalized_name = game_name.strip().lower()
-    if "黑神话" in normalized_name or "wukong" in normalized_name or "black myth" in normalized_name:
-        return [{"id": "2358720", "name": "Black Myth: Wukong (黑神话：悟空 正版)"}]
-    if "法环" in normalized_name or "elden" in normalized_name:
-        return [{"id": "1245620", "name": "ELDEN RING (艾尔登法环 正版)"}]
-    if "赛博朋克" in normalized_name or "cyberpunk" in normalized_name:
-        return [{"id": "1091500", "name": "Cyberpunk 2077 (赛博朋克2077 正版)"}]
+    with st.form("registration_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            username = st.text_input("玩家昵称*", max_chars=20)
+        with col2:
+            st.write("")
 
-    search_url = f"https://store.steampowered.com/api/storesearch/?term={game_name}&l=zh-cn&cc=HK"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    try:
-        response = requests.get(search_url, headers=headers, timeout=10)
-        if response.status_code == 200 and response.json():
-            items = response.json().get("items", [])
-            results = []
-            for item in items[:5]:
-                name_check = item.get("name", "").lower()
-                if "destiny man" in name_check:
-                    continue
-                results.append({
-                    "id": str(item.get("id")),
-                    "name": item.get("name")
-                })
-            return results
-    except:
-        pass
-    return []
-
-def fetch_game_guide_details(app_id):
-    api_url = f"https://store.steampowered.com/api/appdetails?appids={app_id}&l=zh-cn"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    try:
-        response = requests.get(api_url, headers=headers, timeout=10)
-        if response.status_code != 200 or not response.json(): return None
-        data = response.json()
-        if str(app_id) not in data or not data[str(app_id)]["success"]: return None
-        
-        game_data = data[str(app_id)]["data"]
-        game_name = game_data.get("name", "未知独立游戏")
-        
-        raw_desc = game_data.get("about_the_game", "暂无详细简介")
-        clean_desc = re.sub(r'<[^>]+>', '', raw_desc).strip()
-        short_desc = clean_desc if len(clean_desc) <= 500 else clean_desc[:500] + "..."
-        
-        header_image = game_data.get("header_image", "")
-        genres = game_data.get("genres", [])
-        tags = [g.get("description", "") for g in genres[:8]] or ["新游开荒"]
-        developers = ", ".join(game_data.get("developers", ["未知"]))
-        
-        return {
-            "game_name": game_name,
-            "short_desc": short_desc,
-            "header_image": header_image,
-            "tags": tags,
-            "developers": developers
-        }
-    except:
-        return None
-
-# =========================================================================
-# 2. 前端工程架构
-# =========================================================================
-st.set_page_config(page_title="Steam Game Pioneer Hub", page_icon="🎮", layout="wide")
-
-if st.session_state["current_user_id"] is None:
-    st.title("🎮 Steam 游戏全能开荒助手 (Game Pioneer Hub)")
-    st.caption("香港树仁大学应用数据科学系 ")
-    st.markdown("---")
-    
-    _, col_b, _ = st.columns([1, 2, 1])
-    with col_b:
-        if st.session_state["auth_page"] == "login":
-            st.subheader("🔑 用户登录")
-            u_id = st.text_input("账号 ID", placeholder="请输入注册账号")
-            u_pwd = st.text_input("登录密码", type="password", placeholder="请输入密码")
-            if st.button("进入", use_container_width=True):
-                if u_id in users_db and users_db[u_id]["password"] == u_pwd:
-                    st.session_state["current_user_id"] = u_id
-                    st.rerun()
-                else: st.error("账号或密码不匹配，请重试。")
-            if st.button("新用户？点击一键注册"):
-                st.session_state["auth_page"] = "register"; st.rerun()
-                
-        elif st.session_state["auth_page"] == "register":
-            st.subheader("📝 账户注册")
-            r_id = st.text_input("设置用户账号 (英文字母/数字)")
-            r_name = st.text_input("游戏圈个性昵称 (展示用)")
-            r_pwd = st.text_input("设置密码", type="password")
-            if st.button("同步注册信息", use_container_width=True):
-                if not r_id or not r_name or not r_pwd: st.error("所有注册字段均不能为空！")
-                elif r_id in users_db: st.error("该账号已被注册，请更换 ID。")
-                else:
-                    users_db[r_id] = {"password": r_pwd, "name": r_name}
-                    save_json_db(USER_DB_FILE, users_db)
-                    st.success("注册成功！请切换回登录。")
-                    st.session_state["auth_page"] = "login"; st.rerun()
-            if st.button("返回登录界面"):
-                st.session_state["auth_page"] = "login"; st.rerun()
-
-else:
-    user_id = st.session_state["current_user_id"]
-    user_name = users_db[user_id]["name"]
-    
-    col_t1, col_t2 = st.columns([4, 1])
-    with col_t1:
-        st.title("🎮 Steam 游戏全能开荒助手 (Pioneer Hub)")
-        st.write(f"当前用户：**{user_name}** | 实验室系统节点：`树仁应用数据科学大数据实验室`")
-    with col_t2:
-        st.write(" ")
-        if st.button("⚙️ 退出助手", use_container_width=True):
-            st.session_state["current_user_id"] = None
-            st.session_state["last_search_result"] = None
-            st.session_state["last_search_appid"] = None
-            st.rerun()
-    st.markdown("---")
-    
-    st.sidebar.header("📁 核心向功能导航")
-    app_mode = st.sidebar.radio("请选择核心模块", ["🔍 新游智能开荒检索", "📜 个人探索历史清单", "💬 社区开荒开黑交流区"])
-    
-    # ---------------------------------------------------------------------
-    # 模块 1：新游智能开荒检索
-    # ---------------------------------------------------------------------
-    if app_mode == "🔍 新游智能开荒检索":
-        st.sidebar.markdown("---")
-        st.sidebar.header("📥 游戏大盘检索")
-        search_query = st.sidebar.text_input("请输入想了解的游戏名字", value="黑神话")
-        
-        if st.sidebar.button("🔍 智能检索大盘", use_container_width=True):
-            with st.spinner("正在扫描 Steam 官方大盘数据库..."):
-                search_results = search_steam_appid_by_name(search_query)
-                if search_results:
-                    st.session_state["player_search_results"] = search_results
-                    st.sidebar.success(f"为您寻获 {len(search_results)} 款关联目标！")
-                else:
-                    st.sidebar.error("未找到关联游戏，请检查错别字或缩写。")
-                    st.session_state["player_search_results"] = None
-
-        if "player_search_results" in st.session_state and st.session_state["player_search_results"]:
-            st.markdown("### 🎯 请锁定您想要检索的游戏目标")
-            options = {f"🎮 {item['name']} (AppID: {item['id']})": item['id'] for item in st.session_state["player_search_results"]}
-            selected_label = st.selectbox("请在下方候选大盘列表中选择一项锁定：", list(options.keys()))
-            
-            if st.button("🚀 锁定并生成全功能开荒红皮书"):
-                target_appid = options[selected_label]
-                with st.spinner("正在提取该游戏的核心数据资产与特色简介..."):
-                    res = fetch_game_guide_details(target_appid)
-                    if res:
-                        if user_id not in history_db: history_db[user_id] = []
-                        # 确保精确存入 3 个对应字段
-                        history_db[user_id].append({
-                            "app_id": str(target_appid), 
-                            "game_name": str(res["game_name"]), 
-                            "time": datetime.now().strftime("%Y-%m-%d %H:%M")
-                        })
-                        save_json_db(HISTORY_DB_FILE, history_db)
-                        
-                        st.session_state["last_search_result"] = res
-                        st.session_state["last_search_appid"] = target_appid
-                        st.session_state["player_search_results"] = None
-                        st.rerun()
-            st.markdown("---")
-        
-        if st.session_state["last_search_result"] is not None:
-            game_info = st.session_state["last_search_result"]
-            current_appid = st.session_state["last_search_appid"]
-            
-            col_img, col_txt = st.columns([1, 2])
-            with col_img:
-                if game_info["header_image"]:
-                    st.image(game_info["header_image"], use_container_width=True, caption="Steam 官方正版数字资产图片")
-                else:
-                    st.image("https://images.unsplash.com/photo-1612287230202-1bf1d85d1bdf?q=80&w=600&auto=format&fit=crop", use_container_width=True)
-                st.markdown(f"**🏢 开发商：** `{game_info['developers']}`")
-                st.markdown(f"**🔢 官方 AppID：** `{current_appid}`")
-            with col_txt:
-                st.subheader(f"🎮 游戏名称：{game_info['game_name']}")
-                tags_html = "".join([f"<span style='background-color:#007bff;color:white;padding:3px 8px;margin-right:5px;border-radius:3px;font-size:12px;'>{t}</span>" for t in game_info["tags"]])
-                st.markdown(f"**🏷️ 核心特色分类：** {tags_html}", unsafe_allow_html=True)
-                st.markdown(" ")
-                st.markdown(f"**📖 游戏官方简介与背景：** \n{game_info['short_desc']}")
-            
-            st.markdown("---")
-            st.markdown("### 📺 玩家速成快捷键：一键空降全网保姆级教学视频平台")
-            st.write("系统已为您基于当前游戏名称，智能动态编码封装了最佳开荒搜索矩阵：")
-            
-            encoded_game_name = urllib.parse.quote(game_info['game_name'])
-            bilibili_url = f"https://search.bilibili.com/all?keyword={encoded_game_name}%20%E6%95%99%E5%AD%A6%E6%94%BB%E7%95%A5"
-            youtube_url = f"https://www.youtube.com/results?search_query={encoded_game_name}+guide+walkthrough"
-            
-            v_col1, v_col2 = st.columns(2)
-            with v_col1:
-                st.markdown(f'<a href="{bilibili_url}" target="_blank" style="text-decoration: none;"><div style="background-color: #fb7299; color: white; padding: 15px; border-radius: 8px; text-align: center; font-weight: bold;">📺 哔哩哔哩 (Bilibili) | 调取国内【{game_info["game_name"]}】保姆级新手开荒/全收集攻略</div></a>', unsafe_allow_html=True)
-            with v_col2:
-                st.markdown(f'<a href="{youtube_url}" target="_blank" style="text-decoration: none;"><div style="background-color: #ff0000; color: white; padding: 15px; border-radius: 8px; text-align: center; font-weight: bold;">🎬 YouTube Global | 调取全球【{game_info["game_name"]}】100% 极限速通与机制拆解</div></a>', unsafe_allow_html=True)
-            
-            st.markdown("---")
-            st.subheader(f"💬 【{game_info['game_name']}】玩家互助、开黑与踩坑反馈区")
-            
-            game_comments = comments_db.get(str(current_appid), [])
-            if not game_comments:
-                st.caption("当前暂无玩家留言，欢迎发布首条逃坑/组队指南！")
-            else:
-                for c in game_comments:
-                    st.markdown(f"**👤 玩家: {c['user']}** (`{c['time']}`):  \n> {c['text']}")
-            
-            with st.form("comment_form", clear_on_submit=True):
-                new_comment = st.text_area("发布你的通关心得、联机暗号或避雷经验：")
-                if st.form_submit_button("发布到该游戏开荒板") and new_comment.strip():
-                    if str(current_appid) not in comments_db: comments_db[str(current_appid)] = []
-                    comments_db[str(current_appid)].append({
-                        "user": user_name, "text": new_comment, "time": datetime.now().strftime("%Y-%m-%d %H:%M")
-                    })
-                    save_json_db(COMMENT_DB_FILE, comments_db)
-                    st.success("心得发布成功，已实时同步！")
-                    st.rerun()
-        else:
-            if "player_search_results" not in st.session_state or not st.session_state["player_search_results"]:
-                st.info("💡 开荒助手已就绪。请在左侧侧边栏输入任何你想玩的游戏名称，开启全新玩家红皮书。")
-
-    # ---------------------------------------------------------------------
-    # 模块 2：个人探索历史清单 (🌟 重点修复：动态列映射安全防护)
-    # ---------------------------------------------------------------------
-    elif app_mode == "📜 个人探索历史清单":
-        st.subheader("📜 您的专属游戏探索足迹清单")
-        
-        user_history = history_db.get(user_id, [])
-        if not user_history:
-            st.info("您当前还没有检索过任何游戏，快去左侧输入名字开启探索吧！")
-        else:
-            # 1. 转化为 DataFrame
-            df = pd.DataFrame(user_history)
-            
-            # 2. 🛡️ 【数据科学安全守卫】动态检查并强制对齐预期字段，防止不规范存盘报错
-            expected_keys = ["app_id", "game_name", "time"]
-            for key in expected_keys:
-                if key not in df.columns:
-                    df[key] = "未录入"
-            
-            # 3. 严格提取这三列，丢弃可能干扰的多余列
-            df = df[expected_keys]
-            
-            # 4. 安全赋予中文名称，杜绝 Length mismatch 报错
-            df.columns = ["游戏 AppID", "被搜索游戏名称", "探索解锁时间"]
-            
-            # 5. 渲染可视化面板
-            st.dataframe(df, use_container_width=True)
-            st.metric(label="已解锁探索游戏总数", value=f"{len(user_history)} 款")
-
-    # ---------------------------------------------------------------------
-    # 模块 3：社区开荒开黑交流区
-    # ---------------------------------------------------------------------
-    elif app_mode == "💬 社区开荒开黑交流区":
-        st.subheader("💬 大数据实验室 · 全能玩家开荒综合讨论广场")
-        st.write("在这里发布联机暗号、硬件配置探讨或全站动态。")
         st.markdown("---")
-        
-        global_comments = comments_db.get("global_forum", [])
-        if not global_comments:
-            st.caption("大广场空空如也，留下你的第一条组队邀请吧！")
-        else:
-            for c in global_comments:
-                st.markdown(f"**👤 玩家: {c['user']}** (`{c['time']}`):  \n{c['text']}")
-                st.markdown("---")
-                
-        with st.form("global_form", clear_on_submit=True):
-            g_text = st.text_input("广播一条组队/求助动态：", placeholder="例如：有人来连深岩银河吗？带带萌新...")
-            if st.form_submit_button("全站广播推送") and g_text.strip():
-                if "global_forum" not in comments_db: comments_db["global_forum"] = []
-                comments_db["global_forum"].append({
-                    "user": user_name, "text": g_text, "time": datetime.now().strftime("%Y-%m-%d %H:%M")
+        st.caption("📊 以下数据将用于社区数据科学分析，仅展示统计结果")
+
+        # 基础人口统计
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            gender = st.radio("性别", ["男", "女", "不愿透露"], horizontal=True)
+        with col2:
+            age = st.selectbox("年龄段", ["18岁以下", "18-24岁", "25-30岁", "31-35岁", "36岁以上"])
+        with col3:
+            region = st.selectbox("所在地区", ["华北", "华东", "华南", "西南", "西北", "东北", "海外"])
+
+        # 游戏行为
+        st.markdown("#### 🎯 游戏行为")
+        col1, col2 = st.columns(2)
+        with col1:
+            game_types = st.multiselect(
+                "喜欢的游戏类型（可多选）",
+                ["动作", "角色扮演", "策略", "射击", "模拟", "体育", "休闲", "恐怖", "解谜", "竞速"]
+            )
+            play_time = st.select_slider(
+                "每天平均游戏时长",
+                options=["<1小时", "1-3小时", "3-5小时", "5-8小时", "8小时以上"]
+            )
+        with col2:
+            gaming_years = st.slider("游戏龄（年）", 1, 30, 5)
+            weekly_frequency = st.select_slider(
+                "每周游戏频率",
+                options=["偶尔（1-2天）", "经常（3-4天）", "频繁（5-6天）", "几乎每天"]
+            )
+
+        # 心理/态度
+        st.markdown("#### 🧠 游戏态度")
+        col1, col2 = st.columns(2)
+        with col1:
+            quit_reason = st.multiselect(
+                "你通常是因为什么弃坑一款游戏？（选1-3个）",
+                ["太难了", "没时间", "没朋友一起玩", "剧情无聊", "内容太少", "优化差/卡顿", "其他"]
+            )
+        with col2:
+            purchase_factor = st.multiselect(
+                "影响你购买游戏的主要因素（选1-3个）",
+                ["画面", "玩法", "价格", "朋友推荐", "媒体评分", "Steam评价", "开发者口碑"]
+            )
+
+        # 主观评分（1-10）
+        st.markdown("#### 📝 主观评分（1-10）")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            gaming_skill = st.slider("游戏技术水平", 1, 10, 5)
+        with col2:
+            social_preference = st.slider("更喜欢联机/社交", 1, 10, 5)
+        with col3:
+            completionist = st.slider("全收集/成就追求度", 1, 10, 5)
+
+        submitted = st.form_submit_button("🚀 建立档案")
+
+        if submitted:
+            if not username.strip():
+                st.error("请输入昵称！")
+                return None
+
+            user_data = {
+                "username": username.strip(),
+                "gender": gender,
+                "age": age,
+                "region": region,
+                "game_types": game_types,
+                "play_time": play_time,
+                "gaming_years": gaming_years,
+                "weekly_frequency": weekly_frequency,
+                "quit_reason": quit_reason,
+                "purchase_factor": purchase_factor,
+                "gaming_skill": gaming_skill,
+                "social_preference": social_preference,
+                "completionist": completionist,
+                "register_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+
+            db = load_json_db(USER_DATA_FILE)
+            db[username.strip()] = user_data
+            save_json_db(USER_DATA_FILE, db)
+            log_activity(username.strip(), "注册")
+
+            st.success(f"✅ 欢迎 {username}！你的数据已加入社区分析库")
+            return username
+    return None
+
+# ==========================================
+# 3. 深度数据分析看板
+# ==========================================
+def show_deep_data_insights():
+    st.subheader("📊 社区数据科学看板")
+    st.caption("基于真实玩家数据的统计建模、聚类分析、关联挖掘与预测")
+
+    user_db = load_json_db(USER_DATA_FILE)
+    strategy_db = load_json_db(STRATEGY_DB_FILE)
+    activity_db = load_json_db(ACTIVITY_LOG_FILE)
+
+    if len(user_db) < 5:
+        st.warning(f"当前只有 {len(user_db)} 位玩家，数据量不足深度分析。建议积累至少 10 位玩家后查看完整分析。")
+        # 即使数据少也展示部分内容
+        if len(user_db) == 0:
+            st.info("📭 暂无玩家数据，等待第一位注册玩家...")
+            return
+
+    df = pd.DataFrame(user_db).T.reset_index().rename(columns={"index": "用户名"})
+
+    # ====================================================================
+    # 分析 1：用户分群聚类（K-Means）
+    # ====================================================================
+    st.markdown("---")
+    st.subheader("🧩 分析 1：玩家智能分群（K-Means 聚类）")
+    st.caption("基于游戏行为和心理特征，将玩家自动分为 4 类典型群体")
+
+    try:
+        # 特征工程
+        cluster_features = []
+        for _, row in df.iterrows():
+            # 将分类变量转换为数值
+            time_map = {"<1小时": 0.5, "1-3小时": 2, "3-5小时": 4, "5-8小时": 6.5, "8小时以上": 9}
+            freq_map = {"偶尔（1-2天）": 1.5, "经常（3-4天）": 3.5, "频繁（5-6天）": 5.5, "几乎每天": 7}
+            features = [
+                time_map.get(row.get("play_time", "1-3小时"), 2),
+                freq_map.get(row.get("weekly_frequency", "经常（3-4天）"), 3.5),
+                row.get("gaming_years", 5),
+                row.get("gaming_skill", 5),
+                row.get("social_preference", 5),
+                row.get("completionist", 5),
+                len(row.get("game_types", [])),
+                len(row.get("quit_reason", []))
+            ]
+            cluster_features.append(features)
+
+        cluster_df = pd.DataFrame(cluster_features, columns=[
+            "游戏时长", "周频率", "游戏龄", "技术水平", "社交偏好", "成就追求", "类型数", "弃坑因素数"
+        ])
+
+        # 标准化 + KMeans
+        scaler = StandardScaler()
+        scaled = scaler.fit_transform(cluster_df)
+        kmeans = KMeans(n_clusters=4, random_state=42, n_init=10)
+        df["玩家分群"] = kmeans.fit_predict(scaled)
+
+        # 分群命名
+        cluster_names = {}
+        for cluster_id in df["玩家分群"].unique():
+            cluster_data = df[df["玩家分群"] == cluster_id]
+            avg_social = cluster_data["social_preference"].mean()
+            avg_skill = cluster_data["gaming_skill"].mean()
+            avg_time = cluster_data["play_time"].apply(lambda x: {"<1小时": 0.5, "1-3小时": 2, "3-5小时": 4, "5-8小时": 6.5, "8小时以上": 9}.get(x, 2)).mean()
+
+            if avg_social > 6 and avg_time > 4:
+                name = "🎮 社交硬核玩家"
+            elif avg_social > 6 and avg_time <= 4:
+                name = "🤝 社交休闲玩家"
+            elif avg_social <= 6 and avg_time > 4:
+                name = "🏆 独狼硬核玩家"
+            else:
+                name = "🌿 休闲探索玩家"
+            cluster_names[cluster_id] = name
+
+        df["玩家分群名称"] = df["玩家分群"].map(cluster_names)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            # 分群分布
+            cluster_counts = df["玩家分群名称"].value_counts().reset_index()
+            cluster_counts.columns = ["玩家类型", "人数"]
+            fig1 = px.pie(cluster_counts, values="人数", names="玩家类型", color_discrete_sequence=px.colors.qualitative.Set3)
+            fig1.update_layout(height=350)
+            st.plotly_chart(fig1, use_container_width=True)
+
+        with col2:
+            # 分群特征雷达图
+            st.caption("各类玩家特征雷达图")
+            # 计算各群平均特征
+            radar_data = []
+            for cluster_id in sorted(df["玩家分群"].unique()):
+                subset = df[df["玩家分群"] == cluster_id]
+                radar_data.append({
+                    "群组": cluster_names[cluster_id],
+                    "技术水平": subset["gaming_skill"].mean(),
+                    "社交偏好": subset["social_preference"].mean(),
+                    "成就追求": subset["completionist"].mean(),
+                    "游戏龄": subset["gaming_years"].mean()
                 })
-                save_json_db(COMMENT_DB_FILE, comments_db)
-                st.success("全站动态广播成功！")
+            radar_df = pd.DataFrame(radar_data)
+            fig2 = go.Figure()
+            for _, row in radar_df.iterrows():
+                fig2.add_trace(go.Scatterpolar(
+                    r=[row["技术水平"], row["社交偏好"], row["成就追求"], row["游戏龄"]],
+                    theta=["技术水平", "社交偏好", "成就追求", "游戏龄"],
+                    fill='toself',
+                    name=row["群组"]
+                ))
+            fig2.update_layout(height=350, polar=dict(radialaxis=dict(visible=True, range=[0, 10])))
+            st.plotly_chart(fig2, use_container_width=True)
+
+        # 分群详细描述
+        with st.expander("📖 点击查看各玩家类型详细画像"):
+            for cluster_id, name in cluster_names.items():
+                subset = df[df["玩家分群"] == cluster_id]
+                st.markdown(f"**{name}** ({len(subset)} 人)")
+                st.write(f"- 平均技术水平: {subset['gaming_skill'].mean():.1f}/10")
+                st.write(f"- 平均社交偏好: {subset['social_preference'].mean():.1f}/10")
+                st.write(f"- 平均成就追求: {subset['completionist'].mean():.1f}/10")
+                st.write(f"- 最常玩的类型: {', '.join(subset['game_types'].explode().value_counts().head(3).index.tolist())}")
+                st.write("---")
+
+    except Exception as e:
+        st.warning(f"聚类分析需要更多数据样本，当前数据量不足。继续注册更多玩家后自动生效。")
+
+    # ====================================================================
+    # 分析 2：相关性分析（Cramér's V + 卡方检验）
+    # ====================================================================
+    st.markdown("---")
+    st.subheader("📈 分析 2：玩家特征与弃坑原因的相关性（Cramér's V）")
+    st.caption("检验哪些因素与玩家弃坑显著相关，为社区内容优化提供数据支撑")
+
+    if len(df) >= 10:
+        try:
+            # 预处理分类变量
+            categorical_cols = ["gender", "age", "region", "play_time", "weekly_frequency"]
+
+            # 提取主弃坑原因（取第一个）
+            df["main_quit"] = df["quit_reason"].apply(lambda x: x[0] if isinstance(x, list) and len(x) > 0 else "其他")
+
+            # Cramér's V 计算
+            def cramers_v(confusion_matrix):
+                chi2 = stats.chi2_contingency(confusion_matrix)[0]
+                n = confusion_matrix.sum()
+                phi2 = chi2 / n
+                r, k = confusion_matrix.shape
+                phi2corr = max(0, phi2 - ((k-1)*(r-1))/(n-1))
+                rcorr = r - ((r-1)**2)/(n-1)
+                kcorr = k - ((k-1)**2)/(n-1)
+                return np.sqrt(phi2corr / min((kcorr-1), (rcorr-1)))
+
+            corr_results = []
+            for col in categorical_cols:
+                if col in df.columns:
+                    crosstab = pd.crosstab(df[col], df["main_quit"])
+                    if crosstab.shape[1] > 1 and crosstab.shape[0] > 1:
+                        try:
+                            v = cramers_v(crosstab.values)
+                            corr_results.append({"特征": col, "Cramér's V": round(v, 3)})
+                        except:
+                            pass
+
+            if corr_results:
+                corr_df = pd.DataFrame(corr_results).sort_values("Cramér's V", ascending=False)
+                fig3 = px.bar(corr_df, x="Cramér's V", y="特征", orientation="h", color="Cramér's V", color_continuous_scale="Reds")
+                fig3.update_layout(height=300)
+                st.plotly_chart(fig3, use_container_width=True)
+                st.caption("💡 V 值越接近 1，表示该特征与弃坑原因关联越强。V > 0.3 为中等相关，V > 0.5 为强相关。")
+            else:
+                st.info("数据量不足以计算相关性，继续积累数据。")
+
+        except Exception as e:
+            st.info("相关性分析需要更多数据样本。")
+    else:
+        st.info(f"相关性分析需要至少 10 位玩家数据，当前 {len(df)} 位。继续招募玩家吧！")
+
+    # ====================================================================
+    # 分析 3：假设检验（t检验）- 不同性别的游戏时长差异
+    # ====================================================================
+    st.markdown("---")
+    st.subheader("🔬 分析 3：统计假设检验 - 性别对游戏时长的影响（t检验）")
+    st.caption("检验男性和女性的平均游戏时长是否存在显著差异")
+
+    if len(df) >= 15:
+        try:
+            time_map = {"<1小时": 0.5, "1-3小时": 2, "3-5小时": 4, "5-8小时": 6.5, "8小时以上": 9}
+            df["play_time_numeric"] = df["play_time"].map(time_map)
+
+            male_times = df[df["gender"] == "男"]["play_time_numeric"].dropna()
+            female_times = df[df["gender"] == "女"]["play_time_numeric"].dropna()
+
+            if len(male_times) > 3 and len(female_times) > 3:
+                t_stat, p_value = stats.ttest_ind(male_times, female_times)
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("男性平均游戏时长", f"{male_times.mean():.1f} 小时/天")
+                    st.metric("女性平均游戏时长", f"{female_times.mean():.1f} 小时/天")
+                with col2:
+                    st.metric("t统计量", f"{t_stat:.3f}")
+                    st.metric("p值", f"{p_value:.4f}")
+                    if p_value < 0.05:
+                        st.success("✅ p < 0.05，差异显著！男性和女性的游戏时长有统计学显著差异。")
+                    else:
+                        st.info("ℹ️ p ≥ 0.05，差异不显著。男性和女性的游戏时长没有统计学显著差异。")
+            else:
+                st.info("男/女性玩家样本量不足，需要各至少 3 人。")
+        except Exception as e:
+            st.info("假设检验需要更多样本。")
+    else:
+        st.info(f"假设检验需要至少 15 位玩家数据，当前 {len(df)} 位。")
+
+    # ====================================================================
+    # 分析 4：时间序列 - 社区活跃度趋势
+    # ====================================================================
+    st.markdown("---")
+    st.subheader("📉 分析 4：社区生命周期分析（时间序列）")
+    st.caption("追踪社区注册和活跃趋势，识别增长阶段")
+
+    if activity_db:
+        activity_df = pd.DataFrame(activity_db).T
+        activity_df["time"] = pd.to_datetime(activity_df["time"])
+        activity_df["date"] = activity_df["time"].dt.date
+        daily_activity = activity_df.groupby("date").size().reset_index(name="活跃数")
+
+        # 7日移动平均
+        daily_activity["MA7"] = daily_activity["活跃数"].rolling(window=7, min_periods=1).mean()
+
+        fig4 = go.Figure()
+        fig4.add_trace(go.Scatter(x=daily_activity["date"], y=daily_activity["活跃数"], mode="lines+markers", name="日活跃"))
+        fig4.add_trace(go.Scatter(x=daily_activity["date"], y=daily_activity["MA7"], mode="lines", name="7日移动平均", line=dict(dash="dash")))
+        fig4.update_layout(height=300, xaxis_title="日期", yaxis_title="活跃用户数")
+        st.plotly_chart(fig4, use_container_width=True)
+
+        # 增长阶段识别
+        if len(daily_activity) > 7:
+            recent_growth = (daily_activity["MA7"].iloc[-1] - daily_activity["MA7"].iloc[-7]) / daily_activity["MA7"].iloc[-7] * 100
+            if recent_growth > 10:
+                st.success(f"📈 社区处于快速增长阶段，近7天增长 {recent_growth:.1f}%")
+            elif recent_growth < -10:
+                st.warning(f"📉 社区活跃度下降，近7天下降 {abs(recent_growth):.1f}%，建议进行社区活动拉新")
+            else:
+                st.info(f"📊 社区活跃度稳定，近7天变化 {recent_growth:.1f}%")
+    else:
+        st.info("暂无活跃数据，等待玩家登录...")
+
+    # ====================================================================
+    # 分析 5：关联规则发现 - "喜欢A类型的人也喜欢B类型"
+    # ====================================================================
+    st.markdown("---")
+    st.subheader("🔗 分析 5：游戏类型关联规则（协同过滤）")
+    st.caption("发现玩家偏好模式：喜欢某类游戏的人也倾向喜欢另一类")
+
+    try:
+        all_types = df["game_types"].explode().dropna().unique().tolist()
+        if len(all_types) >= 3:
+            # 构建用户-类型矩阵
+            user_type_matrix = pd.DataFrame(0, index=df["用户名"], columns=all_types)
+            for _, row in df.iterrows():
+                for t in row.get("game_types", []):
+                    if t in user_type_matrix.columns:
+                        user_type_matrix.loc[row["用户名"], t] = 1
+
+            # 计算类型间的余弦相似度
+            type_similarity = cosine_similarity(user_type_matrix.T)
+            type_sim_df = pd.DataFrame(type_similarity, index=all_types, columns=all_types)
+
+            # 展示 Top 5 关联对
+            pairs = []
+            for i, t1 in enumerate(all_types):
+                for j, t2 in enumerate(all_types):
+                    if i < j:
+                        pairs.append({"类型A": t1, "类型B": t2, "相似度": type_sim_df.loc[t1, t2]})
+            pairs_df = pd.DataFrame(pairs).sort_values("相似度", ascending=False).head(10)
+
+            st.write("**最常被同时喜欢的游戏类型组合**")
+            for _, row in pairs_df.iterrows():
+                st.write(f"- **{row['类型A']}** ↔ **{row['类型B']}**: 相似度 {row['相似度']:.2%}")
+
+            # 推荐引擎：输入一个类型，输出最相关的3个类型
+            st.caption("🔮 **类型推荐器**：选择你喜欢的类型，系统推荐你可能也喜欢的其他类型")
+            selected_type = st.selectbox("选择一个游戏类型", all_types)
+            if selected_type:
+                recs = type_sim_df[selected_type].sort_values(ascending=False).head(4).index.tolist()
+                recs = [r for r in recs if r != selected_type]
+                st.success(f"喜欢《{selected_type}》的玩家也喜欢：{'  |  '.join(recs)}")
+        else:
+            st.info("游戏类型数据不足以构建关联规则。")
+
+    except Exception as e:
+        st.info("关联分析需要更多玩家数据。")
+
+    # ====================================================================
+    # 分析 6：流失风险预测模型（逻辑回归）
+    # ====================================================================
+    st.markdown("---")
+    st.subheader("⚠️ 分析 6：玩家流失风险预测模型（逻辑回归）")
+    st.caption("基于玩家画像预测其流失概率，帮助社区提前干预")
+
+    if len(df) >= 20:
+        try:
+            # 构造特征和标签
+            time_map = {"<1小时": 0, "1-3小时": 1, "3-5小时": 2, "5-8小时": 3, "8小时以上": 4}
+            df["play_time_encoded"] = df["play_time"].map(time_map)
+            df["quit_count"] = df["quit_reason"].apply(lambda x: len(x) if isinstance(x, list) else 0)
+
+            # 假设：弃坑因素>=3的玩家为高风险流失群体
+            df["churn_risk"] = (df["quit_count"] >= 3).astype(int)
+
+            features = ["gaming_years", "gaming_skill", "social_preference", "completionist", "play_time_encoded"]
+            X = df[features].fillna(df[features].mean())
+            y = df["churn_risk"]
+
+            if y.sum() >= 3 and (1 - y).sum() >= 3:
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+                model = LogisticRegression(max_iter=1000)
+                model.fit(X_train, y_train)
+
+                # 显示特征重要性
+                importance_df = pd.DataFrame({
+                    "特征": features,
+                    "系数": model.coef_[0],
+                    "影响方向": ["正面（增加流失风险）" if c > 0 else "负面（降低流失风险）" for c in model.coef_[0]]
+                })
+                importance_df = importance_df.sort_values("系数", ascending=False)
+
+                fig6 = px.bar(importance_df, x="系数", y="特征", orientation="h", color="影响方向", color_discrete_map={"正面（增加流失风险）": "red", "负面（降低流失风险）": "green"})
+                fig6.update_layout(height=250)
+                st.plotly_chart(fig6, use_container_width=True)
+
+                st.caption("💡 系数为正的特征会增加流失风险，系数为负的特征会降低流失风险。")
+            else:
+                st.info("流失风险样本不均衡，需要更多数据。")
+        except Exception as e:
+            st.info("流失预测模型需要更多数据。")
+    else:
+        st.info(f"流失预测模型需要至少 20 位玩家数据，当前 {len(df)} 位。")
+
+    # ====================================================================
+    # 页面底部：问卷数据汇总统计
+    # ====================================================================
+    st.markdown("---")
+    with st.expander("📋 查看问卷数据汇总表"):
+        st.dataframe(df, use_container_width=True)
+        st.caption(f"共 {len(df)} 位玩家，{len(df.columns)} 个数据字段")
+
+# ==========================================
+# 4. 攻略发布 + 社区功能
+# ==========================================
+def show_publish_strategy():
+    st.subheader("✍️ 发布游戏攻略/心得")
+
+    with st.form("strategy_form"):
+        game_name = st.text_input("游戏名称")
+        title = st.text_input("攻略标题")
+        tags = st.multiselect("标签", ["新手向", "进阶", "避坑指南", "速通", "全收集", "剧情解析", "职业攻略", "其他"])
+        content = st.text_area("攻略内容（支持Markdown）", height=300)
+        submitted = st.form_submit_button("📤 发布")
+
+        if submitted and game_name and title and content:
+            db = load_json_db(STRATEGY_DB_FILE)
+            strategy_id = f"strategy_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            db[strategy_id] = {
+                "game_name": game_name,
+                "title": title,
+                "tags": tags,
+                "content": content,
+                "author": st.session_state.get("username", "匿名玩家"),
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M")
+            }
+            save_json_db(STRATEGY_DB_FILE, db)
+            log_activity(st.session_state.get("username", "匿名"), "发布攻略")
+            st.success("🎉 攻略发布成功！")
+            st.balloons()
+
+def show_strategy_list():
+    st.subheader("📚 社区攻略库")
+    db = load_json_db(STRATEGY_DB_FILE)
+    if not db:
+        st.info("暂无攻略，快来发布第一篇吧！")
+        return
+
+    search_game = st.text_input("🔍 按游戏名筛选", placeholder="输入游戏名称...")
+    for sid, item in db.items():
+        if search_game and search_game.lower() not in item["game_name"].lower():
+            continue
+        with st.expander(f"🎯 {item['game_name']} - {item['title']} (by {item.get('author', '匿名')})"):
+            st.caption(f"🏷️ 标签: {', '.join(item.get('tags', []))} | 📅 {item.get('time', '')}")
+            st.markdown(item["content"])
+            if st.button(f"👍 有用 ({sid})"):
+                st.toast("感谢反馈！")
+
+# ==========================================
+# 5. 用户画像
+# ==========================================
+def show_user_profile():
+    username = st.session_state.get("username", "")
+    if not username:
+        st.warning("请先注册")
+        return
+
+    db = load_json_db(USER_DATA_FILE)
+    if username not in db:
+        st.warning("用户数据未找到")
+        return
+
+    user_data = db[username]
+    st.subheader(f"👤 {username} 的玩家档案")
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("性别", user_data.get("gender", "-"))
+    with col2:
+        st.metric("年龄段", user_data.get("age", "-"))
+    with col3:
+        st.metric("游戏龄", f"{user_data.get('gaming_years', '-')} 年")
+    with col4:
+        st.metric("日均时长", user_data.get("play_time", "-"))
+
+    st.write("**🎯 喜欢的游戏类型**")
+    st.write(", ".join(user_data.get("game_types", [])))
+
+    st.write("**⚠️ 弃坑主因**")
+    st.write(", ".join(user_data.get("quit_reason", [])))
+
+    st.write("**📊 自我评分**")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.progress(user_data.get("gaming_skill", 5) / 10)
+        st.caption(f"技术水平: {user_data.get('gaming_skill', 5)}/10")
+    with col2:
+        st.progress(user_data.get("social_preference", 5) / 10)
+        st.caption(f"社交偏好: {user_data.get('social_preference', 5)}/10")
+    with col3:
+        st.progress(user_data.get("completionist", 5) / 10)
+        st.caption(f"成就追求: {user_data.get('completionist', 5)}/10")
+
+# ==========================================
+# 6. 主程序
+# ==========================================
+def main():
+    st.set_page_config(page_title="🎮 游戏玩家社区", page_icon="🎮", layout="wide")
+
+    if "username" not in st.session_state:
+        st.session_state.username = None
+    if "registered" not in st.session_state:
+        st.session_state.registered = False
+
+    with st.sidebar:
+        st.title("🎮 游戏玩家社区")
+
+        if not st.session_state.registered:
+            st.info("欢迎新玩家！请先完成注册")
+            username = show_registration_survey()
+            if username:
+                st.session_state.username = username
+                st.session_state.registered = True
                 st.rerun()
+        else:
+            st.success(f"👋 {st.session_state.username}")
+            if st.button("🚪 切换账号"):
+                st.session_state.registered = False
+                st.session_state.username = None
+                st.rerun()
+
+            st.markdown("---")
+            user_db = load_json_db(USER_DATA_FILE)
+            st.metric("👥 社区总人数", len(user_db))
+            strategy_db = load_json_db(STRATEGY_DB_FILE)
+            st.metric("📝 攻略总数", len(strategy_db))
+
+    if st.session_state.registered:
+        tabs = st.tabs([
+            "📊 数据科学看板",
+            "📚 攻略库",
+            "✍️ 发布攻略",
+            "👤 我的画像"
+        ])
+
+        with tabs[0]:
+            show_deep_data_insights()
+
+        with tabs[1]:
+            show_strategy_list()
+
+        with tabs[2]:
+            show_publish_strategy()
+
+        with tabs[3]:
+            show_user_profile()
+    else:
+        st.info("👈 请先在左侧完成注册问卷，解锁社区全部功能")
+
+if __name__ == "__main__":
+    main()
