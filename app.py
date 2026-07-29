@@ -467,6 +467,8 @@ def show_deep_data_insights():
     st.success(f"📌 基于 {len(user_db)} 位玩家的数据分析")
 
     st.markdown("---")
+
+    # ========== 图表部分 ==========
     col1, col2 = st.columns(2)
     with col1:
         gender_counts = df["gender"].value_counts().reset_index()
@@ -603,6 +605,128 @@ def show_deep_data_insights():
 
     with st.expander("📋 查看数据汇总"):
         st.dataframe(df, use_container_width=True)
+
+    # ================================================================
+    # ========== 🧠 数据洞察报告 ==========
+    # ================================================================
+    st.markdown("---")
+    st.subheader("🧠 数据洞察报告")
+    st.caption("基于以上数据的自动分析，为社区运营提供数据支撑")
+
+    # 提取关键指标
+    total_users = len(df)
+    top_genre = "未知"
+    top_genre_count = 0
+    if all_types:
+        type_counts = pd.Series(all_types).value_counts()
+        top_genre = type_counts.index[0]
+        top_genre_count = type_counts.iloc[0]
+
+    top_reason = "未知"
+    top_reason_count = 0
+    if all_reasons:
+        reason_counts = pd.Series(all_reasons).value_counts()
+        top_reason = reason_counts.index[0]
+        top_reason_count = reason_counts.iloc[0]
+
+    male_pct = len(df[df["gender"] == "男"]) / total_users * 100 if total_users > 0 else 0
+    female_pct = len(df[df["gender"] == "女"]) / total_users * 100 if total_users > 0 else 0
+
+    age_counts = df["age"].value_counts()
+    top_age = age_counts.index[0] if len(age_counts) > 0 else "未知"
+
+    time_counts = df["play_time"].value_counts()
+    top_time = time_counts.index[0] if len(time_counts) > 0 else "未知"
+
+    cluster_names_list = []
+    if "分群名称" in df.columns:
+        cluster_names_list = df["分群名称"].value_counts().index.tolist()
+
+    # ---- 生成报告内容 ----
+    report_lines = []
+
+    report_lines.append(f"📊 **社区概览**")
+    report_lines.append(f"- 社区当前共有 **{total_users}** 位注册玩家。")
+
+    if male_pct > 0 or female_pct > 0:
+        report_lines.append(f"- 性别比例：男性 {male_pct:.1f}%，女性 {female_pct:.1f}%。")
+
+    report_lines.append(f"- 核心玩家年龄段为 **{top_age}**（{age_counts[top_age]} 人，占比 {age_counts[top_age]/total_users*100:.1f}%）。")
+
+    if all_types:
+        report_lines.append("")
+        report_lines.append(f"🎯 **热门游戏类型分析**")
+        report_lines.append(f"- **{top_genre}** 是最受欢迎的游戏类型，被 {top_genre_count} 位玩家提及（{top_genre_count/total_users*100:.1f}%）。")
+        report_lines.append(f"- 排名前五的类型：{', '.join(type_counts.head(5).index.tolist())}。")
+        report_lines.append(f"- 💡 **运营建议**：优先增加 **{top_genre}** 类游戏的教程内容，该品类覆盖了超过 {top_genre_count/total_users*100:.0f}% 的玩家。")
+
+    if all_reasons:
+        report_lines.append("")
+        report_lines.append(f"⚠️ **弃坑风险分析**")
+        report_lines.append(f"- **{top_reason}** 是玩家弃坑的首要原因（{top_reason_count} 人，{top_reason_count/total_users*100:.1f}%）。")
+        report_lines.append(f"- 主要弃坑原因 Top 3：{', '.join(reason_counts.head(3).index.tolist())}。")
+        
+        if top_reason == "没时间":
+            report_lines.append(f"- 💡 **运营建议**：创作更多 **碎片化内容**（3-5分钟可读完的微攻略），降低玩家的时间门槛。")
+        elif top_reason == "太难了":
+            report_lines.append(f"- 💡 **运营建议**：重点制作 **新手入门教程** 和 **避坑指南**，帮助玩家跨过初始难度障碍。")
+        elif top_reason == "没朋友一起玩":
+            report_lines.append(f"- 💡 **运营建议**：强化社区互动功能，组织 **联机活动** 和 **组队匹配**，帮助玩家找到玩伴。")
+
+    report_lines.append("")
+    report_lines.append(f"⏰ **玩家活跃度分析**")
+    report_lines.append(f"- 最主流的游戏时长区间是 **{top_time}**，占比 {time_counts[top_time]/total_users*100:.1f}%。")
+    if top_time in ["3-5小时", "5-8小时", "8小时以上"]:
+        report_lines.append(f"- 社区以 **中度至重度玩家** 为主，建议提供更多 **深度攻略** 和 **进阶内容**。")
+    else:
+        report_lines.append(f"- 社区以 **轻度至中度玩家** 为主，建议提供更多 **快速上手指南** 和 **碎片化内容**。")
+
+    if cluster_names_list:
+        report_lines.append("")
+        report_lines.append(f"👥 **玩家分群洞察**")
+        report_lines.append(f"- 通过 K-Means 聚类，玩家分为 {len(cluster_names_list)} 个典型群体：{', '.join(cluster_names_list)}。")
+        report_lines.append(f"- 💡 **运营建议**：针对不同群体定制内容策略——")
+        for name in cluster_names_list:
+            if "社交" in name:
+                report_lines.append(f"  - {name}：重点推送 **联机活动** 和 **组队招募** 内容。")
+            elif "硬核" in name:
+                report_lines.append(f"  - {name}：重点推送 **深度攻略**、**速通技巧** 和 **高难度挑战** 内容。")
+            elif "休闲" in name:
+                report_lines.append(f"  - {name}：重点推送 **轻松向内容**、**剧情解析** 和 **入门指南**。")
+            else:
+                report_lines.append(f"  - {name}：根据其游戏偏好推送个性化内容。")
+
+    report_lines.append("")
+    report_lines.append("---")
+    report_lines.append("📌 **一句话总结**")
+    
+    if top_reason == "没时间":
+        summary = f"Compass 社区的玩家以 **{top_genre}** 类游戏爱好者为主，最大痛点是 **时间不足**。建议打造 **碎片化知识库**，让玩家在有限时间内高效获取游戏信息。"
+    elif top_reason == "太难了":
+        summary = f"Compass 社区的玩家以 **{top_genre}** 类游戏爱好者为主，最大痛点是 **游戏难度过高**。建议建立 **分级教程体系**，从入门到精通，帮助玩家逐步成长。"
+    elif top_reason == "没朋友一起玩":
+        summary = f"Compass 社区的玩家以 **{top_genre}** 类游戏爱好者为主，最大痛点是 **缺少玩伴**。建议强化 **社区社交功能**，将 Compass 打造为玩家的 **联机枢纽**。"
+    else:
+        summary = f"Compass 社区的玩家以 **{top_genre}** 类游戏爱好者为主。建议围绕该品类持续产出内容，同时关注玩家反馈动态调整内容策略。"
+    
+    report_lines.append(f"> {summary}")
+
+    if total_users < 10:
+        report_lines.append("")
+        report_lines.append("⚠️ **注意**：当前数据样本较少（< 10 人），以上洞察仅供参考。建议持续招募更多玩家，以获得更可靠的统计结论。")
+
+    # ---- 渲染报告 ----
+    for line in report_lines:
+        if line.startswith("---"):
+            st.markdown("---")
+        elif line.startswith("> "):
+            st.info(line[2:])
+        elif line.startswith("📌"):
+            st.markdown(line)
+        else:
+            st.write(line)
+
+    st.caption(f"📅 报告自动生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
 # ==========================================
 # 4. 教程功能
