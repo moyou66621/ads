@@ -82,7 +82,7 @@ def generate_demo_users():
 
         save_json_db(USER_DATA_FILE, demo_users)
 
-        # 预置教程（Steam 搜索功能的数据来源）
+        # 预置教程（含 Steam 链接）
         demo_strategies = {}
         sample_games = {
             "艾尔登法环": "https://store.steampowered.com/app/1245620/Elden_Ring/",
@@ -142,7 +142,7 @@ def clear_demo_data():
         return False
 
 # ==========================================
-# 1. Steam 搜索功能（旧功能保留）
+# 1. Steam 搜索功能
 # ==========================================
 def fetch_steam_game_features(app_id):
     url = f"https://store.steampowered.com/app/{app_id}/"
@@ -203,7 +203,6 @@ def show_game_search():
             if game_info:
                 st.success(f"✅ 找到游戏: {game_info['game_name']}")
 
-                # 显示游戏信息
                 col1, col2 = st.columns([1, 2])
                 with col1:
                     st.metric("截图数量", game_info['screenshot_count'])
@@ -214,7 +213,6 @@ def show_game_search():
                     st.write(", ".join(game_info['tags'][:5]))
                     st.write(f"**Steam 链接:** [点击访问]({game_info['steam_url']})")
 
-                # 查询该游戏是否有教程
                 strategy_db = load_json_db(STRATEGY_DB_FILE)
                 related_strategies = []
                 for sid, item in strategy_db.items():
@@ -227,12 +225,11 @@ def show_game_search():
                     for item in related_strategies:
                         with st.expander(f"🎯 {item['title']} (by {item.get('author', '匿名')})"):
                             st.caption(f"🏷️ 标签: {', '.join(item.get('tags', []))}")
-                            st.markdown(item['content'])
+                            if item.get("steam_url"):
+                                st.markdown(f"🔗 [Steam 链接]({item['steam_url']})")
+                            st.markdown(item["content"])
                 else:
                     st.info(f"📭 暂无《{game_info['game_name']}》的教程，成为第一个分享者吧！")
-                    if st.button("📝 发布此游戏教程"):
-                        st.session_state['publish_game'] = game_info['game_name']
-                        st.rerun()
             else:
                 st.error("未找到该游戏，请检查 AppID 是否正确")
 
@@ -341,7 +338,6 @@ def show_deep_data_insights():
     df = pd.DataFrame(user_db).T.reset_index().rename(columns={"index": "用户名"})
     st.success(f"📌 基于 {len(user_db)} 位玩家的数据分析")
 
-    # 基础统计
     st.markdown("---")
     col1, col2 = st.columns(2)
     with col1:
@@ -383,7 +379,6 @@ def show_deep_data_insights():
             fig4.update_layout(height=280, title="弃坑原因", showlegend=False)
             st.plotly_chart(fig4, use_container_width=True)
 
-    # 交叉分析
     st.markdown("---")
     st.subheader("🔍 游戏类型 × 弃坑原因")
     if len(user_db) >= 5:
@@ -402,7 +397,6 @@ def show_deep_data_insights():
             st.plotly_chart(fig5, use_container_width=True)
             st.caption("💡 颜色越深表示该类型玩家更容易因该原因弃坑")
 
-    # K-Means 聚类
     st.markdown("---")
     st.subheader("🧩 玩家智能分群")
     if len(user_db) >= 8:
@@ -483,7 +477,7 @@ def show_deep_data_insights():
         st.dataframe(df, use_container_width=True)
 
 # ==========================================
-# 4. 教程功能
+# 4. 教程功能（含 Steam 链接显示）
 # ==========================================
 def show_publish_strategy():
     st.subheader("✍️ 发布游戏教程/心得")
@@ -516,20 +510,34 @@ def show_publish_strategy():
 
 def show_strategy_list():
     st.subheader("📚 教程库")
+    st.caption("每一位玩家的经验，都是新手的指南针")
+
     db = load_json_db(STRATEGY_DB_FILE)
     if not db:
-        st.info("📭 暂无教程")
+        st.info("📭 暂无教程，快来发布第一篇吧！")
         return
 
     search = st.text_input("🔍 搜索游戏", placeholder="输入游戏名称...")
+
+    found = False
     for sid, item in db.items():
         if search and search.lower() not in item.get("game_name", "").lower():
             continue
+        found = True
         with st.expander(f"🎯 {item['game_name']} - {item['title']} (by {item.get('author', '匿名')})"):
             st.caption(f"🏷️ 标签: {', '.join(item.get('tags', []))} | 📅 {item.get('time', '')}")
+
             if item.get("steam_url"):
-                st.caption(f"🔗 [Steam 链接]({item['steam_url']})")
+                st.success(f"🔗 **Steam 商店链接:** [点击访问 {item['game_name']}]({item['steam_url']})")
+
+            st.markdown("---")
             st.markdown(item["content"])
+
+            if item.get("steam_url") and "http" not in item["content"]:
+                st.caption(f"📎 游戏链接: {item['steam_url']}")
+
+    if search and not found:
+        st.info(f"未找到 '{search}' 相关的教程，去发布一篇吧！")
 
 # ==========================================
 # 5. 用户画像
@@ -610,7 +618,6 @@ def main():
         st.caption("用数据指引你的游戏之路")
         st.markdown("---")
 
-        # 管理员入口
         with st.expander("🔐 管理员入口"):
             pwd = st.text_input("密码", type="password", placeholder="admin123")
             col1, col2 = st.columns(2)
@@ -625,11 +632,10 @@ def main():
                 if st.button("🚪 退出", use_container_width=True):
                     st.session_state.admin_mode = False
                     st.rerun()
-            st.caption("🟢" if st.session_state.admin_mode else "⚪")
+            st.caption("🟢 管理员模式" if st.session_state.admin_mode else "⚪ 普通模式")
 
         st.markdown("---")
 
-        # 用户注册
         if not st.session_state.registered:
             username = show_registration_survey()
             if username:
@@ -647,7 +653,6 @@ def main():
             st.metric("👥 社区人数", len(user_db))
 
     if st.session_state.registered:
-        # 管理员模式：5个标签
         if st.session_state.admin_mode:
             tabs = st.tabs([
                 "🔍 搜索游戏",
@@ -670,7 +675,6 @@ def main():
             with tabs[5]:
                 show_admin_panel()
         else:
-            # 普通用户：4个标签（无数据看板）
             tabs = st.tabs([
                 "🔍 搜索游戏",
                 "📚 教程库",
