@@ -761,4 +761,11 @@ def main():
             with tabs[1]:
                 show_strategy_list()
             with tabs[2]:
-                show_publish_strategy
+                show_publish_strategy()
+            with tabs[3]:
+                show_user_profile()
+    else:
+        st.info("👈 请先注册加入 Compass")
+
+if __name__ == "__main__":
+    main()
