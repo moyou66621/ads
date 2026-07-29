@@ -23,6 +23,7 @@ USER_DATA_FILE = "user_data.json"
 COMMENT_DB_FILE = "comments_db.json"
 STRATEGY_DB_FILE = "strategies_db.json"
 ACTIVITY_LOG_FILE = "activity_log.json"
+DEMO_DATA_FLAG = "demo_data_loaded.flag"
 
 def load_json_db(file_path):
     if os.path.exists(file_path):
@@ -45,21 +46,15 @@ def log_activity(username, action):
     save_json_db(ACTIVITY_LOG_FILE, db)
 
 # ==========================================
-# 0.5 演示数据生成器
+# 0.5 演示数据生成器（仅管理员模式调用）
 # ==========================================
 def generate_demo_users():
-    """如果数据库为空，自动生成演示用户，让看板立即可用"""
+    """生成演示用户数据"""
     try:
-        # 如果已有数据，跳过
-        if os.path.exists(USER_DATA_FILE):
-            with open(USER_DATA_FILE, "r", encoding="utf-8") as f:
-                existing = json.load(f)
-                if len(existing) >= 5:
-                    return
-    except:
-        pass
+        # 如果已有数据且标志文件存在，跳过
+        if os.path.exists(DEMO_DATA_FLAG):
+            return
 
-    try:
         demo_users = {}
         genders = ["男", "女", "不愿透露"]
         ages = ["18岁以下", "18-24岁", "25-30岁", "31-35岁", "36岁以上"]
@@ -117,8 +112,27 @@ def generate_demo_users():
             }
         save_json_db(ACTIVITY_LOG_FILE, demo_activities)
 
+        # 创建标志文件
+        with open(DEMO_DATA_FLAG, "w") as f:
+            f.write("loaded")
+
+        return True
+
     except Exception as e:
         print(f"⚠️ 演示数据生成失败: {e}")
+        return False
+
+def clear_demo_data():
+    """清除演示数据和标志"""
+    try:
+        files = [USER_DATA_FILE, STRATEGY_DB_FILE, ACTIVITY_LOG_FILE, DEMO_DATA_FLAG]
+        for f in files:
+            if os.path.exists(f):
+                os.remove(f)
+        return True
+    except Exception as e:
+        print(f"⚠️ 清除数据失败: {e}")
+        return False
 
 # ==========================================
 # 1. 用户注册 + 问卷
@@ -186,6 +200,12 @@ def show_registration_survey():
                 st.error("请输入昵称！")
                 return None
 
+            # 检查是否在演示模式下，如果是则不允许注册演示账号
+            user_db = load_json_db(USER_DATA_FILE)
+            if username.startswith("Demo_") and not st.session_state.get("admin_mode", False):
+                st.error("该昵称已被保留，请使用其他昵称")
+                return None
+
             user_data = {
                 "username": username.strip(),
                 "gender": gender,
@@ -212,7 +232,7 @@ def show_registration_survey():
     return None
 
 # ==========================================
-# 2. 数据科学看板
+# 2. 数据科学看板（仅管理员可见）
 # ==========================================
 def show_deep_data_insights():
     st.subheader("📊 Compass 数据科学看板")
@@ -226,13 +246,8 @@ def show_deep_data_insights():
 
     df = pd.DataFrame(user_db).T.reset_index().rename(columns={"index": "用户名"})
 
-    # 显示数据量提示
-    if len(user_db) >= 20:
-        st.success(f"📌 当前基于 {len(user_db)} 位玩家的数据进行分析。")
-    elif len(user_db) >= 5:
-        st.info(f"📌 当前有 {len(user_db)} 位玩家，数据积累中。更多数据将带来更精准的洞察。")
-    else:
-        st.warning(f"📌 当前只有 {len(user_db)} 位玩家，部分分析需要更多数据。邀请朋友加入吧！")
+    # 显示数据量
+    st.success(f"📌 当前基于 {len(user_db)} 位玩家的数据进行分析。")
 
     st.markdown("---")
 
@@ -530,11 +545,65 @@ def show_user_profile():
         st.caption(f"成就追求: {user_data.get('completionist', 5)}/10")
 
 # ==========================================
-# 5. 主程序
+# 5. 管理员面板
+# ==========================================
+def show_admin_panel():
+    """管理员控制面板"""
+    st.subheader("🔐 管理员控制面板")
+    st.caption("管理 Compass 的数据和演示模式")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("#### 📊 加载演示数据")
+        st.write("点击下方按钮将生成 30 位演示玩家和 10 篇演示攻略，用于数据看板展示。")
+        if st.button("📥 加载演示数据", use_container_width=True):
+            with st.spinner("正在生成演示数据..."):
+                if generate_demo_users():
+                    st.success("✅ 演示数据加载成功！")
+                    st.rerun()
+                else:
+                    st.error("❌ 演示数据加载失败，请检查日志")
+
+    with col2:
+        st.markdown("#### 🗑️ 清除所有数据")
+        st.write("⚠️ 此操作将删除所有用户数据、攻略和演示数据，不可恢复！")
+        if st.button("🗑️ 清除所有数据", use_container_width=True, type="secondary"):
+            with st.spinner("正在清除数据..."):
+                if clear_demo_data():
+                    st.success("✅ 所有数据已清除！")
+                    st.rerun()
+                else:
+                    st.error("❌ 清除数据失败")
+
+    st.markdown("---")
+
+    # 数据统计
+    st.markdown("#### 📈 当前数据统计")
+    user_db = load_json_db(USER_DATA_FILE)
+    strategy_db = load_json_db(STRATEGY_DB_FILE)
+    activity_db = load_json_db(ACTIVITY_LOG_FILE)
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("👥 注册玩家", len(user_db))
+    with col2:
+        st.metric("📝 攻略数量", len(strategy_db))
+    with col3:
+        st.metric("📋 活动日志", len(activity_db))
+
+    if len(user_db) > 0:
+        with st.expander("📋 查看所有用户数据"):
+            df = pd.DataFrame(user_db).T
+            st.dataframe(df, use_container_width=True)
+
+    st.markdown("---")
+    st.caption("管理员密码: admin123")
+
+# ==========================================
+# 6. 主程序
 # ==========================================
 def main():
-    # 启动时生成演示数据
-    generate_demo_users()
 
     st.set_page_config(
         page_title="Compass · 游戏玩家社区",
@@ -542,16 +611,48 @@ def main():
         layout="wide"
     )
 
+    # 初始化 session state
     if "username" not in st.session_state:
         st.session_state.username = None
     if "registered" not in st.session_state:
         st.session_state.registered = False
+    if "admin_mode" not in st.session_state:
+        st.session_state.admin_mode = False
 
+    # ===== 侧边栏 =====
     with st.sidebar:
         st.title("🧭 Compass")
         st.caption("用数据指引你的游戏之路")
         st.markdown("---")
 
+        # 管理员切换（折叠）
+        with st.expander("🔐 管理员入口"):
+            admin_password = st.text_input("输入管理员密码", type="password", placeholder="admin123")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🔓 进入管理员模式", use_container_width=True):
+                    if admin_password == "admin123":
+                        st.session_state.admin_mode = True
+                        # 自动加载演示数据
+                        generate_demo_users()
+                        st.success("✅ 管理员模式已开启")
+                        st.rerun()
+                    else:
+                        st.error("❌ 密码错误")
+            with col2:
+                if st.button("🚪 退出管理员模式", use_container_width=True):
+                    st.session_state.admin_mode = False
+                    st.rerun()
+
+            if st.session_state.admin_mode:
+                st.success("🟢 当前为管理员模式")
+                st.caption("数据看板已解锁，演示数据已加载")
+            else:
+                st.info("⚪ 当前为普通用户模式")
+
+        st.markdown("---")
+
+        # 用户注册/登录
         if not st.session_state.registered:
             st.info("欢迎新玩家！请先加入 Compass")
             username = show_registration_survey()
@@ -572,38 +673,70 @@ def main():
             strategy_db = load_json_db(STRATEGY_DB_FILE)
             st.metric("📝 攻略总数", len(strategy_db))
 
+    # ===== 主界面 =====
+    # 如果用户已注册，展示完整功能
     if st.session_state.registered:
-        tabs = st.tabs([
-            "📊 Compass 数据看板",
-            "📚 攻略库",
-            "✍️ 发布攻略",
-            "👤 我的档案"
-        ])
+        # 管理员模式额外显示 Admin 标签
+        if st.session_state.admin_mode:
+            tabs = st.tabs([
+                "📊 Compass 数据看板",
+                "📚 攻略库",
+                "✍️ 发布攻略",
+                "👤 我的档案",
+                "🔐 管理员面板"
+            ])
 
-        with tabs[0]:
-            show_deep_data_insights()
+            with tabs[0]:
+                show_deep_data_insights()
 
-        with tabs[1]:
-            show_strategy_list()
+            with tabs[1]:
+                show_strategy_list()
 
-        with tabs[2]:
-            show_publish_strategy()
+            with tabs[2]:
+                show_publish_strategy()
 
-        with tabs[3]:
-            show_user_profile()
-    else:
-        # 未注册时，也展示一个精简的数据看板预览
-        st.info("👈 请先在左侧完成注册，加入 Compass 社区")
-        st.markdown("---")
-        st.subheader("📊 数据看板预览（注册后解锁完整分析）")
-        user_db = load_json_db(USER_DATA_FILE)
-        if len(user_db) > 0:
-            st.success(f"当前已有 {len(user_db)} 位玩家加入 Compass")
-            # 显示一个简单的预览
-            df = pd.DataFrame(user_db).T
-            st.dataframe(df.head(10), use_container_width=True)
+            with tabs[3]:
+                show_user_profile()
+
+            with tabs[4]:
+                show_admin_panel()
         else:
-            st.info("等待第一位玩家加入...")
+            # 普通用户模式：没有数据看板
+            tabs = st.tabs([
+                "📚 攻略库",
+                "✍️ 发布攻略",
+                "👤 我的档案"
+            ])
+
+            with tabs[0]:
+                show_strategy_list()
+
+            with tabs[1]:
+                show_publish_strategy()
+
+            with tabs[2]:
+                show_user_profile()
+
+            # 普通用户在底部看不到数据看板
+
+    else:
+        # 未注册用户：展示欢迎页面，如果管理员模式则可以看到数据预览
+        st.info("👈 请先在左侧完成注册，加入 Compass 社区")
+
+        if st.session_state.admin_mode:
+            # 管理员未注册时也可以预览数据
+            st.markdown("---")
+            st.subheader("📊 数据看板预览（管理员视角）")
+            user_db = load_json_db(USER_DATA_FILE)
+            if len(user_db) > 0:
+                st.success(f"当前已有 {len(user_db)} 位玩家加入 Compass（含演示数据）")
+                df = pd.DataFrame(user_db).T
+                st.dataframe(df.head(20), use_container_width=True)
+            else:
+                st.info("暂无数据，请点击左侧「管理员入口」→「进入管理员模式」加载演示数据")
+        else:
+            st.markdown("---")
+            st.caption("💡 管理员可通过侧边栏「管理员入口」进入管理模式查看数据看板")
 
 if __name__ == "__main__":
     main()
