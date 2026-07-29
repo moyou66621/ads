@@ -15,6 +15,7 @@ import warnings
 import requests
 from bs4 import BeautifulSoup
 import re
+import time
 warnings.filterwarnings('ignore')
 
 # ==========================================
@@ -143,8 +144,57 @@ def clear_demo_data():
         return False
 
 # ==========================================
-# 1. Steam 搜索功能（支持名称和 AppID）
+# 1. Steam 搜索功能（支持名称和 AppID，含备选列表）
 # ==========================================
+
+# 备选游戏名称列表（当网络请求失败时使用）
+FALLBACK_GAME_LIST = [
+    {"name": "黑神话：悟空", "appid": 2358720},
+    {"name": "艾尔登法环", "appid": 1245620},
+    {"name": "赛博朋克2077", "appid": 1091500},
+    {"name": "星露谷物语", "appid": 413150},
+    {"name": "空洞骑士", "appid": 367520},
+    {"name": "巫师3", "appid": 292030},
+    {"name": "只狼", "appid": 814380},
+    {"name": "文明6", "appid": 289070},
+    {"name": "我的世界", "appid": 0},
+    {"name": "CS:GO", "appid": 730},
+    {"name": "DOTA2", "appid": 570},
+    {"name": "PUBG", "appid": 578080},
+    {"name": "GTA5", "appid": 271590},
+    {"name": "荒野大镖客2", "appid": 1174180},
+    {"name": "死亡搁浅", "appid": 1190460},
+    {"name": "双人成行", "appid": 1426210},
+    {"name": "地平线5", "appid": 1551360},
+    {"name": "女神异闻录5", "appid": 1687950},
+    {"name": "最终幻想14", "appid": 39210},
+    {"name": "怪物猎人崛起", "appid": 1446780},
+]
+
+def get_steam_app_list():
+    """获取 Steam 游戏列表，失败时返回备选列表"""
+    # 如果 session_state 中已有，直接返回
+    if "steam_app_list" in st.session_state and st.session_state.steam_app_list is not None:
+        return st.session_state.steam_app_list
+    
+    # 尝试从 Steam API 获取
+    try:
+        list_url = "https://api.steampowered.com/ISteamApps/GetAppList/v2/"
+        response = requests.get(list_url, timeout=15)
+        if response.status_code == 200:
+            data = response.json()
+            app_list = data['applist']['apps']
+            # 只保留有名字的游戏（过滤掉空名字）
+            app_list = [app for app in app_list if app.get('name', '').strip()]
+            st.session_state.steam_app_list = app_list
+            return app_list
+    except Exception as e:
+        print(f"⚠️ 获取Steam列表失败: {e}")
+    
+    # 备选方案：返回预置列表
+    st.session_state.steam_app_list = FALLBACK_GAME_LIST
+    return FALLBACK_GAME_LIST
+
 def fetch_steam_game_features(app_id):
     url = f"https://store.steampowered.com/app/{app_id}/"
     cookies = {
@@ -207,30 +257,18 @@ def show_game_search():
             if search_input.strip().isdigit():
                 app_id = search_input.strip()
             else:
-                # 输入的是游戏名称，从 Steam 获取 AppID 列表
+                # 输入的是游戏名称，获取 AppID 列表
                 try:
-                    if "steam_app_list" not in st.session_state:
-                        st.session_state.steam_app_list = None
-                    
-                    if st.session_state.steam_app_list is None:
-                        list_url = "https://api.steampowered.com/ISteamApps/GetAppList/v2/"
-                        list_resp = requests.get(list_url, timeout=10)
-                        if list_resp.status_code == 200:
-                            data = list_resp.json()
-                            st.session_state.steam_app_list = data['applist']['apps']
-                        else:
-                            st.error("无法获取游戏列表，请检查网络")
-                            return
-                    
-                    apps = st.session_state.steam_app_list
+                    apps = get_steam_app_list()
                     search_lower = search_input.strip().lower()
                     matches = []
                     for app in apps:
-                        if search_lower in app['name'].lower():
+                        if app.get('name') and search_lower in app['name'].lower():
                             matches.append(app)
                     
                     if not matches:
-                        st.error(f"未找到名为 '{search_input}' 的游戏，请检查输入是否正确")
+                        st.error(f"未找到名为 '{search_input}' 的游戏")
+                        st.info("💡 提示：如果游戏名称是中文，请尝试使用英文名搜索（如 'Elden Ring' 而不是 '艾尔登法环'）")
                         return
                     
                     if len(matches) > 1:
@@ -250,7 +288,7 @@ def show_game_search():
                     st.error(f"搜索失败: {e}")
                     return
             
-            if app_id:
+            if app_id and app_id != "0":
                 game_info = fetch_steam_game_features(app_id)
                 if game_info:
                     if game_name_found:
@@ -286,7 +324,9 @@ def show_game_search():
                     else:
                         st.info(f"📭 暂无《{game_info['game_name']}》的教程，成为第一个分享者吧！")
                 else:
-                    st.error(f"无法获取游戏详情，请检查 AppID 是否正确")
+                    st.error(f"无法获取游戏详情，请检查 AppID 是否正确或游戏是否存在")
+            elif app_id == "0":
+                st.info("此游戏暂无 Steam 页面，请尝试搜索其他游戏")
 
 # ==========================================
 # 2. 用户注册 + 问卷
@@ -689,60 +729,4 @@ def main():
         st.markdown("---")
 
         if not st.session_state.registered:
-            username = show_registration_survey()
-            if username:
-                st.session_state.username = username
-                st.session_state.registered = True
-                st.rerun()
-        else:
-            st.success(f"👋 {st.session_state.username}")
-            if st.button("🚪 切换账号"):
-                st.session_state.registered = False
-                st.session_state.username = None
-                st.rerun()
-
-            user_db = load_json_db(USER_DATA_FILE)
-            st.metric("👥 社区人数", len(user_db))
-
-    if st.session_state.registered:
-        if st.session_state.admin_mode:
-            tabs = st.tabs([
-                "🔍 搜索游戏",
-                "📚 教程库",
-                "✍️ 发布教程",
-                "📊 数据看板",
-                "👤 我的档案",
-                "🔐 管理"
-            ])
-            with tabs[0]:
-                show_game_search()
-            with tabs[1]:
-                show_strategy_list()
-            with tabs[2]:
-                show_publish_strategy()
-            with tabs[3]:
-                show_deep_data_insights()
-            with tabs[4]:
-                show_user_profile()
-            with tabs[5]:
-                show_admin_panel()
-        else:
-            tabs = st.tabs([
-                "🔍 搜索游戏",
-                "📚 教程库",
-                "✍️ 发布教程",
-                "👤 我的档案"
-            ])
-            with tabs[0]:
-                show_game_search()
-            with tabs[1]:
-                show_strategy_list()
-            with tabs[2]:
-                show_publish_strategy()
-            with tabs[3]:
-                show_user_profile()
-    else:
-        st.info("👈 请先注册加入 Compass")
-
-if __name__ == "__main__":
-    main()
+            username = show_registration_sur
