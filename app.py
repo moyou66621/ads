@@ -46,7 +46,7 @@ def log_activity(username, action):
     save_json_db(ACTIVITY_LOG_FILE, db)
 
 # ==========================================
-# 0.5 演示数据生成器（已移除"演示攻略内容"硬编码）
+# 0.5 演示数据生成器
 # ==========================================
 def generate_demo_users():
     try:
@@ -82,7 +82,7 @@ def generate_demo_users():
 
         save_json_db(USER_DATA_FILE, demo_users)
 
-        # 预置教程 - 不再包含"演示攻略内容"字样
+        # 预置教程 - 真实内容，不含"演示"字样
         demo_strategies = {}
         sample_games = {
             "艾尔登法环": "https://store.steampowered.com/app/1245620/Elden_Ring/",
@@ -143,7 +143,7 @@ def clear_demo_data():
         return False
 
 # ==========================================
-# 1. Steam 搜索功能
+# 1. Steam 搜索功能（支持名称和 AppID）
 # ==========================================
 def fetch_steam_game_features(app_id):
     url = f"https://store.steampowered.com/app/{app_id}/"
@@ -194,45 +194,99 @@ def fetch_steam_game_features(app_id):
 
 def show_game_search():
     st.subheader("🔍 搜索 Steam 游戏")
-    st.caption("输入 Steam AppID，获取游戏信息和相关教程")
+    st.caption("输入游戏名称或 AppID，获取游戏信息和相关教程")
 
-    app_id_input = st.text_input("请输入 Steam 游戏 AppID", placeholder="例如: 1091500 (赛博朋克2077)")
+    search_input = st.text_input("请输入游戏名称或 Steam AppID", placeholder="例如: 赛博朋克2077 或 1091500")
 
-    if app_id_input:
-        with st.spinner("正在获取游戏信息..."):
-            game_info = fetch_steam_game_features(app_id_input)
-            if game_info:
-                st.success(f"✅ 找到游戏: {game_info['game_name']}")
-
-                col1, col2 = st.columns([1, 2])
-                with col1:
-                    st.metric("截图数量", game_info['screenshot_count'])
-                    st.metric("描述长度", f"{game_info['desc_length']} 字符")
-                    st.metric("包含动图", "✅ 有" if game_info['has_gif'] else "❌ 无")
-                with col2:
-                    st.write("**标签**")
-                    st.write(", ".join(game_info['tags'][:5]))
-                    st.write(f"**Steam 链接:** [点击访问]({game_info['steam_url']})")
-
-                strategy_db = load_json_db(STRATEGY_DB_FILE)
-                related_strategies = []
-                for sid, item in strategy_db.items():
-                    if game_info['game_name'].lower() in item.get('game_name', '').lower():
-                        related_strategies.append(item)
-
-                if related_strategies:
-                    st.markdown("---")
-                    st.subheader(f"📚 《{game_info['game_name']}》相关教程")
-                    for item in related_strategies:
-                        with st.expander(f"🎯 {item['title']} (by {item.get('author', '匿名')})"):
-                            st.caption(f"🏷️ 标签: {', '.join(item.get('tags', []))}")
-                            if item.get("steam_url"):
-                                st.markdown(f"🔗 [Steam 链接]({item['steam_url']})")
-                            st.markdown(item["content"])
-                else:
-                    st.info(f"📭 暂无《{game_info['game_name']}》的教程，成为第一个分享者吧！")
+    if search_input:
+        with st.spinner("正在搜索..."):
+            app_id = None
+            game_name_found = None
+            
+            # 判断输入是否为纯数字（AppID）
+            if search_input.strip().isdigit():
+                app_id = search_input.strip()
             else:
-                st.error("未找到该游戏，请检查 AppID 是否正确")
+                # 输入的是游戏名称，从 Steam 获取 AppID 列表
+                try:
+                    if "steam_app_list" not in st.session_state:
+                        st.session_state.steam_app_list = None
+                    
+                    if st.session_state.steam_app_list is None:
+                        list_url = "https://api.steampowered.com/ISteamApps/GetAppList/v2/"
+                        list_resp = requests.get(list_url, timeout=10)
+                        if list_resp.status_code == 200:
+                            data = list_resp.json()
+                            st.session_state.steam_app_list = data['applist']['apps']
+                        else:
+                            st.error("无法获取游戏列表，请检查网络")
+                            return
+                    
+                    apps = st.session_state.steam_app_list
+                    search_lower = search_input.strip().lower()
+                    matches = []
+                    for app in apps:
+                        if search_lower in app['name'].lower():
+                            matches.append(app)
+                    
+                    if not matches:
+                        st.error(f"未找到名为 '{search_input}' 的游戏，请检查输入是否正确")
+                        return
+                    
+                    if len(matches) > 1:
+                        st.info(f"找到 {len(matches)} 个匹配的游戏，请选择：")
+                        options = [f"{m['name']} (AppID: {m['appid']})" for m in matches[:10]]
+                        selected = st.selectbox("选择游戏", options)
+                        if selected:
+                            match = re.search(r'AppID: (\d+)', selected)
+                            if match:
+                                app_id = match.group(1)
+                                game_name_found = selected.split(" (AppID:")[0]
+                    else:
+                        app_id = str(matches[0]['appid'])
+                        game_name_found = matches[0]['name']
+                
+                except Exception as e:
+                    st.error(f"搜索失败: {e}")
+                    return
+            
+            if app_id:
+                game_info = fetch_steam_game_features(app_id)
+                if game_info:
+                    if game_name_found:
+                        game_info['game_name'] = game_name_found
+                    
+                    st.success(f"✅ 找到游戏: {game_info['game_name']}")
+
+                    col1, col2 = st.columns([1, 2])
+                    with col1:
+                        st.metric("截图数量", game_info['screenshot_count'])
+                        st.metric("描述长度", f"{game_info['desc_length']} 字符")
+                        st.metric("包含动图", "✅ 有" if game_info['has_gif'] else "❌ 无")
+                    with col2:
+                        st.write("**标签**")
+                        st.write(", ".join(game_info['tags'][:5]))
+                        st.write(f"**Steam 链接:** [点击访问]({game_info['steam_url']})")
+
+                    strategy_db = load_json_db(STRATEGY_DB_FILE)
+                    related_strategies = []
+                    for sid, item in strategy_db.items():
+                        if game_info['game_name'].lower() in item.get('game_name', '').lower():
+                            related_strategies.append(item)
+
+                    if related_strategies:
+                        st.markdown("---")
+                        st.subheader(f"📚 《{game_info['game_name']}》相关教程")
+                        for item in related_strategies:
+                            with st.expander(f"🎯 {item['title']} (by {item.get('author', '匿名')})"):
+                                st.caption(f"🏷️ 标签: {', '.join(item.get('tags', []))}")
+                                if item.get("steam_url"):
+                                    st.markdown(f"🔗 [Steam 链接]({item['steam_url']})")
+                                st.markdown(item["content"])
+                    else:
+                        st.info(f"📭 暂无《{game_info['game_name']}》的教程，成为第一个分享者吧！")
+                else:
+                    st.error(f"无法获取游戏详情，请检查 AppID 是否正确")
 
 # ==========================================
 # 2. 用户注册 + 问卷
@@ -478,7 +532,7 @@ def show_deep_data_insights():
         st.dataframe(df, use_container_width=True)
 
 # ==========================================
-# 4. 教程功能（Steam 链接正确显示）
+# 4. 教程功能
 # ==========================================
 def show_publish_strategy():
     st.subheader("✍️ 发布游戏教程/心得")
@@ -528,9 +582,8 @@ def show_strategy_list():
         with st.expander(f"🎯 {item['game_name']} - {item['title']} (by {item.get('author', '匿名')})"):
             st.caption(f"🏷️ 标签: {', '.join(item.get('tags', []))} | 📅 {item.get('time', '')}")
 
-            # 显示 Steam 链接
             if item.get("steam_url"):
-                st.markdown(f"🔗 **Steam 页面:** [点击访问 {item['game_name']}]({item['steam_url']})")
+                st.markdown(f"🔗 **Steam 链接:** [点击访问 {item['game_name']}]({item['steam_url']})")
 
             st.markdown("---")
             st.markdown(item["content"])
