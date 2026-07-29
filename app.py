@@ -46,7 +46,7 @@ def log_activity(username, action):
     save_json_db(ACTIVITY_LOG_FILE, db)
 
 # ==========================================
-# 0.5 演示数据生成器
+# 0.5 演示数据生成器（已移除"演示攻略内容"硬编码）
 # ==========================================
 def generate_demo_users():
     try:
@@ -82,7 +82,7 @@ def generate_demo_users():
 
         save_json_db(USER_DATA_FILE, demo_users)
 
-        # 预置教程（含 Steam 链接）
+        # 预置教程 - 不再包含"演示攻略内容"字样
         demo_strategies = {}
         sample_games = {
             "艾尔登法环": "https://store.steampowered.com/app/1245620/Elden_Ring/",
@@ -103,19 +103,20 @@ def generate_demo_users():
                 "content": f"""## {game} 新手入门指南
 
 ### 第一步：基础操作
-- 这是《{game}》的演示教程内容
-- 实际部署后可以接入 Steam 数据自动生成
+- 熟悉《{game}》的基本操作和界面
+- 了解核心玩法和游戏目标
 
-### 第二步：核心玩法
-- 每位玩家都可以在 Compass 分享自己的攻略
-- 帮助新玩家快速上手
+### 第二步：进阶技巧
+- 掌握关键系统和机制
+- 学习高效通关策略
 
-### 第三步：进阶技巧
-- 评论区可以交流心得
-- 数据看板会告诉你哪些攻略最受欢迎
+### 第三步：专家建议
+- 高级技巧和隐藏内容
+- 常见问题解答
 
-### 参考链接
-[Steam 商店页面]({url})
+### 相关资源
+- 欢迎在评论区交流心得
+- 更多攻略请查看其他玩家分享
 """,
                 "author": f"Demo_Player_{random.randint(1,30):02d}",
                 "time": (datetime.now() - timedelta(days=random.randint(1, 20))).strftime("%Y-%m-%d %H:%M"),
@@ -477,7 +478,7 @@ def show_deep_data_insights():
         st.dataframe(df, use_container_width=True)
 
 # ==========================================
-# 4. 教程功能（含 Steam 链接显示）
+# 4. 教程功能（Steam 链接正确显示）
 # ==========================================
 def show_publish_strategy():
     st.subheader("✍️ 发布游戏教程/心得")
@@ -527,14 +528,12 @@ def show_strategy_list():
         with st.expander(f"🎯 {item['game_name']} - {item['title']} (by {item.get('author', '匿名')})"):
             st.caption(f"🏷️ 标签: {', '.join(item.get('tags', []))} | 📅 {item.get('time', '')}")
 
+            # 显示 Steam 链接
             if item.get("steam_url"):
-                st.success(f"🔗 **Steam 商店链接:** [点击访问 {item['game_name']}]({item['steam_url']})")
+                st.markdown(f"🔗 **Steam 页面:** [点击访问 {item['game_name']}]({item['steam_url']})")
 
             st.markdown("---")
             st.markdown(item["content"])
-
-            if item.get("steam_url") and "http" not in item["content"]:
-                st.caption(f"📎 游戏链接: {item['steam_url']}")
 
     if search and not found:
         st.info(f"未找到 '{search}' 相关的教程，去发布一篇吧！")
