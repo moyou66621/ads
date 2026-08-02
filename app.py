@@ -411,7 +411,116 @@ def fetch_steam_hot_games(limit=20):
         return None
 
 # ==========================================
-# 备选游戏数据库（当 Steam API 失败时使用）
+# 2.5 协同过滤推荐系统 + 教程推荐
+# ==========================================
+
+def get_user_ratings():
+    """获取所有用户的游戏评分数据"""
+    user_db = load_json_db(USER_DATA_FILE)
+    ratings = {}
+    for username, data in user_db.items():
+        if "game_ratings" in data and data["game_ratings"]:
+            ratings[username] = data["game_ratings"]
+    return ratings
+
+def save_user_rating(username, game_name, rating):
+    """保存用户对游戏的评分"""
+    db = load_json_db(USER_DATA_FILE)
+    if username not in db:
+        return False
+    if "game_ratings" not in db[username]:
+        db[username]["game_ratings"] = {}
+    db[username]["game_ratings"][game_name] = rating
+    save_json_db(USER_DATA_FILE, db)
+    return True
+
+def get_collaborative_recommendations(target_user, top_n=6):
+    """基于协同过滤为用户推荐游戏"""
+    user_ratings = get_user_ratings()
+    
+    if not user_ratings or target_user not in user_ratings:
+        return []
+    
+    target_ratings = user_ratings[target_user]
+    if not target_ratings:
+        return []
+    
+    # 计算用户相似度
+    similarities = {}
+    for user, ratings in user_ratings.items():
+        if user == target_user:
+            continue
+        # 计算共同评分的游戏
+        common_games = set(target_ratings.keys()) & set(ratings.keys())
+        if not common_games:
+            continue
+        # 余弦相似度
+        target_vec = [target_ratings[g] for g in common_games]
+        user_vec = [ratings[g] for g in common_games]
+        dot_product = sum(a * b for a, b in zip(target_vec, user_vec))
+        mag_target = sum(a * a for a in target_vec) ** 0.5
+        mag_user = sum(b * b for b in user_vec) ** 0.5
+        if mag_target == 0 or mag_user == 0:
+            continue
+        similarity = dot_product / (mag_target * mag_user)
+        similarities[user] = similarity
+    
+    if not similarities:
+        return []
+    
+    # 找最相似的用户
+    similar_users = sorted(similarities.items(), key=lambda x: x[1], reverse=True)[:5]
+    
+    # 聚合推荐
+    recommended_games = {}
+    for user, sim_score in similar_users:
+        for game, rating in user_ratings[user].items():
+            if game in target_ratings:
+                continue
+            if game not in recommended_games:
+                recommended_games[game] = 0
+            recommended_games[game] += rating * sim_score
+    
+    # 按得分排序
+    sorted_games = sorted(recommended_games.items(), key=lambda x: x[1], reverse=True)
+    
+    # 匹配游戏数据库
+    results = []
+    for game_name, score in sorted_games[:top_n]:
+        for game in GAME_DATABASE:
+            if game_name.lower() in game['name'].lower() or game['name'].lower() in game_name.lower():
+                results.append({
+                    "game": game,
+                    "score": score,
+                    "reason": f"和你相似的用户也喜欢 {game['name']}"
+                })
+                break
+        else:
+            # 如果找不到匹配，尝试部分匹配
+            for game in GAME_DATABASE:
+                if any(tag in game['name'] for tag in game_name.split()):
+                    results.append({
+                        "game": game,
+                        "score": score,
+                        "reason": f"和你相似的用户也喜欢相关游戏"
+                    })
+                    break
+    
+    return results[:top_n]
+
+def get_tutorial_recommendations(game_name, limit=3):
+    """根据游戏名称推荐社区教程"""
+    strategy_db = load_json_db(STRATEGY_DB_FILE)
+    tutorials = []
+    for sid, item in strategy_db.items():
+        if game_name.lower() in item.get('game_name', '').lower():
+            tutorials.append(item)
+    # 按时间排序，最新的在前
+    tutorials.sort(key=lambda x: x.get('time', ''), reverse=True)
+    return tutorials[:limit]
+
+# ==========================================
+# 备选游戏数据库
 # ==========================================
 GAME_DATABASE = [
     {
@@ -1122,7 +1231,7 @@ def show_strategy_list():
         st.info(f"未找到 '{search}' 相关的教程，去发布一篇吧！")
 
 # ==========================================
-# 6. 用户画像
+# 6. 用户画像（含协同过滤 + 教程推荐）
 # ==========================================
 def show_user_profile():
     username = st.session_state.get("username", "")
@@ -1153,33 +1262,138 @@ def show_user_profile():
     st.write("**⚠️ 弃坑主因**")
     st.write(", ".join(user_data.get("quit_reason", [])))
 
+    # ============================================================
+    # 第一部分：游戏评分功能
+    # ============================================================
     st.markdown("---")
-    st.subheader("🎯 根据你的游戏偏好，Compass 为你推荐：")
-    st.caption("基于你的游戏类型偏好、技术水平、弃坑原因生成的个性化推荐")
+    st.subheader("⭐ 给游戏评分")
+    st.caption("给玩过的游戏打分，帮助 Compass 更好地为你推荐")
+
+    existing_ratings = user_data.get("game_ratings", {})
     
-    recommendations = get_recommendations(user_data)
+    if existing_ratings:
+        st.write("**已评分的游戏：**")
+        rating_cols = st.columns(3)
+        for idx, (game_name, rating) in enumerate(list(existing_ratings.items())[:6]):
+            with rating_cols[idx % 3]:
+                st.caption(f"🎮 {game_name}: {'⭐' * rating}")
     
-    if recommendations:
-        cols = st.columns(3)
-        for idx, rec in enumerate(recommendations):
-            game = rec["game"]
-            with cols[idx % 3]:
-                with st.container(border=True):
-                    st.markdown(f"**🎮 {game.get('name', '未知游戏')}**")
-                    if game.get('cover_url'):
-                        st.image(game['cover_url'], use_container_width=True)
-                    st.caption(f"🏷️ {', '.join(game.get('tags', [])[:2])}")
-                    if game.get('steam_url'):
-                        st.markdown(f"[查看 Steam]({game['steam_url']})")
-                    st.markdown("---")
-                    st.caption("💡 **推荐理由：**")
-                    for reason in rec["reasons"]:
-                        st.write(f"• {reason}")
-                    
-                    if rec.get("tutorial_count", 0) > 0:
-                        st.caption(f"📚 社区有 {rec['tutorial_count']} 篇教程")
-    else:
-        st.info("暂未找到匹配的游戏推荐，试试在搜索页面查找你喜欢的游戏吧！")
+    game_options = [g['name'] for g in GAME_DATABASE]
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        selected_game = st.selectbox("选择要评分的游戏", game_options, key="rating_select")
+    with col2:
+        rating_value = st.slider("评分", 1, 5, 3, key="rating_slider")
+    
+    if st.button("提交评分"):
+        if save_user_rating(username, selected_game, rating_value):
+            st.success(f"✅ 已为《{selected_game}》评分 {rating_value}⭐")
+            st.rerun()
+        else:
+            st.error("评分失败，请重试")
+
+    # ============================================================
+    # 第二部分：三种推荐方式（Tab 切换）
+    # ============================================================
+    st.markdown("---")
+    st.subheader("🎯 游戏推荐")
+    
+    tab1, tab2, tab3 = st.tabs(["📊 基于偏好推荐", "👥 相似玩家推荐", "📚 社区教程推荐"])
+    
+    # ---- Tab 1: 基于偏好推荐 ----
+    with tab1:
+        st.caption("根据你的游戏类型偏好、技术水平、弃坑原因生成")
+        
+        recommendations = get_recommendations(user_data)
+        
+        if recommendations:
+            cols = st.columns(3)
+            for idx, rec in enumerate(recommendations):
+                game = rec["game"]
+                with cols[idx % 3]:
+                    with st.container(border=True):
+                        st.markdown(f"**🎮 {game.get('name', '未知游戏')}**")
+                        if game.get('cover_url'):
+                            st.image(game['cover_url'], use_container_width=True)
+                        st.caption(f"🏷️ {', '.join(game.get('tags', [])[:2])}")
+                        if game.get('steam_url'):
+                            st.markdown(f"[查看 Steam]({game['steam_url']})")
+                        st.markdown("---")
+                        st.caption("💡 **推荐理由：**")
+                        for reason in rec["reasons"]:
+                            st.write(f"• {reason}")
+                        
+                        if rec.get("tutorial_count", 0) > 0:
+                            st.caption(f"📚 社区有 {rec['tutorial_count']} 篇教程")
+        else:
+            st.info("暂未找到匹配的游戏推荐，试试给玩过的游戏评分吧！")
+    
+    # ---- Tab 2: 相似玩家推荐 ----
+    with tab2:
+        st.caption("根据与你相似的其他玩家的喜好推荐")
+        
+        user_ratings = get_user_ratings()
+        if username in user_ratings and user_ratings[username]:
+            cf_recommendations = get_collaborative_recommendations(username)
+            
+            if cf_recommendations:
+                cols = st.columns(3)
+                for idx, rec in enumerate(cf_recommendations):
+                    game = rec["game"]
+                    with cols[idx % 3]:
+                        with st.container(border=True):
+                            st.markdown(f"**🎮 {game.get('name', '未知游戏')}**")
+                            if game.get('cover_url'):
+                                st.image(game['cover_url'], use_container_width=True)
+                            st.caption(f"🏷️ {', '.join(game.get('tags', [])[:2])}")
+                            if game.get('steam_url'):
+                                st.markdown(f"[查看 Steam]({game['steam_url']})")
+                            st.markdown("---")
+                            st.caption(f"💡 {rec['reason']}")
+            else:
+                st.info("暂无相似用户的推荐，多给一些游戏评分可以获得更精准的推荐！")
+        else:
+            st.info("👆 请先在顶部给游戏评分，系统将为你推荐相似玩家喜欢的游戏")
+    
+    # ---- Tab 3: 社区教程推荐 ----
+    with tab3:
+        st.caption("根据你的游戏偏好，推荐社区热门教程")
+        
+        user_types = user_data.get("game_types", [])
+        if user_types:
+            matched_games = []
+            for game in GAME_DATABASE:
+                for ut in user_types:
+                    if ut in game.get("types", []):
+                        matched_games.append(game['name'])
+                        break
+            
+            if matched_games:
+                tutorial_recommendations = []
+                for game_name in matched_games[:3]:
+                    tutorials = get_tutorial_recommendations(game_name)
+                    for t in tutorials:
+                        t['game_display'] = game_name
+                        tutorial_recommendations.append(t)
+                
+                if tutorial_recommendations:
+                    displayed = set()
+                    for t in tutorial_recommendations:
+                        if t.get('title') in displayed:
+                            continue
+                        displayed.add(t.get('title'))
+                        with st.expander(f"📖 {t.get('game_display', '')} - {t.get('title', '')}"):
+                            st.caption(f"🏷️ 标签: {', '.join(t.get('tags', []))}")
+                            st.caption(f"✍️ 作者: {t.get('author', '匿名')} | 📅 {t.get('time', '')}")
+                            st.markdown(t.get('content', '')[:500] + "...")
+                            if t.get("steam_url"):
+                                st.markdown(f"🔗 [Steam 链接]({t['steam_url']})")
+                else:
+                    st.info("📭 你喜欢的游戏还没有社区教程，成为第一个分享者吧！")
+            else:
+                st.info("📭 根据你的游戏偏好，未找到匹配的游戏教程")
+        else:
+            st.info("请在注册时填写游戏偏好，即可获得教程推荐")
     
     if st.button("🔄 刷新推荐"):
         st.rerun()
