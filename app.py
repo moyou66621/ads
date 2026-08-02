@@ -1143,6 +1143,38 @@ def show_user_profile():
     st.write("**⚠️ 弃坑主因**")
     st.write(", ".join(user_data.get("quit_reason", [])))
 
+    # ===== 新增：根据用户数据生成个性化推荐 =====
+    st.markdown("---")
+    st.subheader("🎯 根据你的游戏偏好，Compass 为你推荐：")
+    st.caption("基于你的游戏类型偏好、技术水平、弃坑原因生成的个性化推荐")
+    
+    recommendations = get_recommendations(user_data)
+    
+    if recommendations:
+        cols = st.columns(3)
+        for idx, rec in enumerate(recommendations):
+            game = rec["game"]
+            with cols[idx % 3]:
+                with st.container(border=True):
+                    st.markdown(f"**🎮 {game['name']}**")
+                    st.caption(f"🏷️ {', '.join(game['tags'][:2])}")
+                    st.caption(f"📈 难度: {'⭐' * min(5, game['difficulty']//2)}")
+                    if game.get("steam_url"):
+                        st.markdown(f"[查看 Steam]({game['steam_url']})")
+                    st.markdown("---")
+                    st.caption("💡 **推荐理由：**")
+                    for reason in rec["reasons"]:
+                        st.write(f"• {reason}")
+                    
+                    if game["tutorial_count"] > 0:
+                        st.caption(f"📚 社区有 {game['tutorial_count']} 篇教程")
+    else:
+        st.info("请先在注册时填写游戏偏好，即可获得个性化推荐")
+
+    # ===== 新增：一键刷新推荐 =====
+    if st.button("🔄 刷新推荐"):
+        st.rerun()
+
 # ==========================================
 # 7. 管理员面板
 # ==========================================
