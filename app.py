@@ -359,191 +359,346 @@ def show_game_search():
 # ==========================================
 # 2. 游戏推荐引擎
 # ==========================================
-GAME_DATABASE = [
+# ==========================================
+# 2. 游戏推荐引擎（连接 Steam）
+# ==========================================
+
+def fetch_steam_hot_games(limit=30):
+    """从 Steam 获取热门游戏列表"""
+    try:
+        # 使用 Steam 的热门游戏 API（无需认证）
+        url = "https://api.steampowered.com/ISteamApps/GetAppList/v2/"
+        response = requests.get(url, timeout=15)
+        if response.status_code != 200:
+            return None
+        
+        data = response.json()
+        all_apps = data['applist']['apps']
+        
+        # 只保留有名字的游戏
+        all_apps = [app for app in all_apps if app.get('name', '').strip()]
+        
+        # 随机取 30 个作为演示（实际可改为按热度排序）
+        random.shuffle(all_apps)
+        selected = all_apps[:limit]
+        
+        games = []
+        for app in selected:
+            app_id = app['appid']
+            name = app['name']
+            
+            # 获取游戏详情（封面、简介、标签）
+            detail_url = f"https://store.steampowered.com/api/appdetails?appids={app_id}&cc=cn&l=zh"
+            try:
+                detail_resp = requests.get(detail_url, timeout=10)
+                if detail_resp.status_code == 200:
+                    detail_data = detail_resp.json()
+                    if detail_data.get(str(app_id), {}).get('success'):
+                        data = detail_data[str(app_id)]['data']
+                        
+                        # 提取类型
+                        genres = [g['description'] for g in data.get('genres', [])][:2]
+                        
+                        # 提取标签
+                        tags = []
+                        if 'tags' in data:
+                            tags = list(data['tags'].keys())[:3]
+                        
+                        # 提取封面图
+                        header_img = data.get('header_image', '')
+                        
+                        # 提取简介
+                        short_desc = data.get('short_description', '')[:150]
+                        
+                        games.append({
+                            "name": name,
+                            "appid": app_id,
+                            "types": genres,
+                            "tags": tags,
+                            "steam_url": f"https://store.steampowered.com/app/{app_id}/",
+                            "cover_url": header_img,
+                            "short_desc": short_desc,
+                            "tutorial_count": 0  # 稍后从社区统计
+                        })
+            except:
+                continue
+        
+        return games
+    except Exception as e:
+        print(f"⚠️ 获取Steam热门游戏失败: {e}")
+        return None
+
+def get_steam_games_for_recommendation():
+    """获取用于推荐的游戏列表（优先从 Steam 获取，失败时使用备选）"""
+    # 先尝试从 Steam 获取
+    games = fetch_steam_hot_games(30)
+    
+    if games and len(games) >= 5:
+        return games
+    
+    # 备选：使用本地游戏库（已包含热门游戏）
+    return FALLBACK_GAME_DATABASE
+
+def get_recommendations(user_data):
+    """根据用户问卷数据生成个性化游戏推荐（连接 Steam）"""
+    user_types = user_data.get("game_types", [])
+    user_skill = user_data.get("gaming_skill", 5)
+    quit_reasons = user_data.get("quit_reason", [])
+    social_preference = user_data.get("social_preference", 5)
+    
+    # 获取游戏列表（从 Steam）
+    games = get_steam_games_for_recommendation()
+    
+    if not games:
+        return []
+    
+    # 获取社区教程列表（用于统计教程数）
+    strategy_db = load_json_db(STRATEGY_DB_FILE)
+    tutorial_games = {}
+    for sid, item in strategy_db.items():
+        game_name = item.get('game_name', '')
+        if game_name:
+            tutorial_games[game_name] = tutorial_games.get(game_name, 0) + 1
+    
+    recommendations = []
+    
+    for game in games:
+        score = 0
+        reasons = []
+        
+        game_name = game.get('name', '')
+        game_types = game.get('types', [])
+        game_tags = game.get('tags', [])
+        game_tutorial_count = 0
+        
+        # 检查该游戏在社区是否有教程
+        for key in tutorial_games:
+            if game_name.lower() in key.lower() or key.lower() in game_name.lower():
+                game_tutorial_count = tutorial_games[key]
+                break
+        
+        # 1. 类型匹配
+        matched_types = [t for t in user_types if t in game_types or any(t in gt or gt in t for gt in game_types)]
+        if matched_types:
+            score += 30
+            reasons.append(f"符合你喜欢的 {', '.join(matched_types[:2])} 类型")
+        else:
+            # 部分匹配
+            for ut in user_types:
+                for gt in game_types:
+                    if ut in gt or gt in ut:
+                        score += 10
+                        reasons.append(f"与 {gt} 类型相关")
+                        break
+                else:
+                    continue
+                break
+        
+        # 2. 难度估算（基于标签）
+        difficulty = 5  # 默认中等
+        if any(t in ['魂系', '硬核', '竞技', '困难'] for t in game_tags):
+            difficulty = 8
+        elif any(t in ['休闲', '轻松', '治愈'] for t in game_tags):
+            difficulty = 3
+        
+        if user_skill <= 3:
+            if difficulty <= 4:
+                score += 20
+                reasons.append("难度适中，适合新手入门")
+            elif difficulty <= 6:
+                score += 10
+                reasons.append("有一定挑战性，但新手也能玩")
+        elif user_skill <= 6:
+            if 4 <= difficulty <= 7:
+                score += 20
+                reasons.append("难度平衡，适合中等水平玩家")
+            elif difficulty <= 4:
+                score += 10
+                reasons.append("操作简单，适合放松游玩")
+        else:
+            if difficulty >= 7:
+                score += 20
+                reasons.append("极具挑战性，适合高水平玩家")
+            elif difficulty >= 5:
+                score += 10
+                reasons.append("有一定难度，值得挑战")
+        
+        # 3. 弃坑原因适配
+        if quit_reasons:
+            if "没时间" in quit_reasons:
+                if difficulty <= 5:
+                    score += 10
+                    reasons.append("学习成本低，适合碎片化时间游玩")
+            
+            if "太难了" in quit_reasons:
+                if difficulty <= 5:
+                    score += 15
+                    reasons.append("难度友好，不用担心卡关")
+            
+            if "没朋友一起玩" in quit_reasons:
+                if any(t in ['多人', '合作', '联机'] for t in game_tags):
+                    score += 15
+                    reasons.append("支持多人联机，可以和朋友一起玩")
+                elif any(t in ['单人', '单机'] for t in game_tags):
+                    score += 8
+                    reasons.append("纯单人游戏，不需要朋友也能玩")
+            
+            if "剧情无聊" in quit_reasons:
+                if any(t in ['剧情', '角色扮演', 'RPG'] for t in game_tags + game_types):
+                    score += 15
+                    reasons.append("剧情深度优秀，故事引人入胜")
+        
+        # 4. 社区教程加成
+        if game_tutorial_count >= 2:
+            score += 10
+            reasons.append(f"社区有 {game_tutorial_count} 篇教程可供参考")
+        elif game_tutorial_count >= 1:
+            score += 5
+            reasons.append(f"社区有 {game_tutorial_count} 篇教程")
+        
+        # 5. 社交偏好
+        if social_preference >= 7:
+            if any(t in ['多人', '合作', '联机'] for t in game_tags):
+                score += 10
+                reasons.append("适合联机/社交，能认识新朋友")
+        else:
+            if any(t in ['单人', '单机', '剧情'] for t in game_tags):
+                score += 8
+                reasons.append("适合独自享受，沉浸感强")
+        
+        # 去重
+        reasons = list(set(reasons))
+        
+        # 如果有类型匹配或者原因够多，加入推荐列表
+        if reasons or score > 10:
+            recommendations.append({
+                "game": game,
+                "score": score,
+                "reasons": reasons[:3],
+                "tutorial_count": game_tutorial_count
+            })
+    
+    # 按得分排序，取前6名
+    recommendations.sort(key=lambda x: x["score"], reverse=True)
+    return recommendations[:6]
+
+# ==========================================
+# 备选游戏数据库（当 Steam API 失败时使用）
+# ==========================================
+FALLBACK_GAME_DATABASE = [
     {
         "name": "黑神话：悟空",
         "types": ["动作", "角色扮演"],
-        "difficulty": 8,
-        "steam_url": "https://store.steampowered.com/app/2358720/Black_Myth_Wukong/",
         "tags": ["动作", "冒险", "中国神话"],
-        "reason_easy": "虽然有一定难度，但战斗系统设计精妙，新手也能快速上手",
-        "reason_hard": "极具挑战性的 Boss 战，适合喜欢硬核动作的玩家",
-        "reason_social": "游戏内无联机，适合享受单人沉浸式体验的玩家",
-        "reason_solo": "单人剧情体验极佳，适合独自探索",
-        "tutorial_count": 3,
-        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/2358720/header.jpg"
+        "steam_url": "https://store.steampowered.com/app/2358720/Black_Myth_Wukong/",
+        "cover_url": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/2358720/header.jpg",
+        "short_desc": "这是一款以中国神话为背景的动作角色扮演游戏。"
     },
     {
         "name": "艾尔登法环",
         "types": ["动作", "角色扮演"],
-        "difficulty": 9,
-        "steam_url": "https://store.steampowered.com/app/1245620/Elden_Ring/",
         "tags": ["动作", "开放世界", "魂系"],
-        "reason_easy": "开放世界设计让玩家可以自由探索，遇到困难时可以选择绕路",
-        "reason_hard": "魂系游戏的巅峰之作，极具挑战性",
-        "reason_social": "支持联机合作，可以和好友一起挑战",
-        "reason_solo": "单人探索体验极佳，沉浸感十足",
-        "tutorial_count": 5,
-        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/1245620/header.jpg"
+        "steam_url": "https://store.steampowered.com/app/1245620/Elden_Ring/",
+        "cover_url": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/1245620/header.jpg",
+        "short_desc": "充满挑战的开放世界动作RPG。"
     },
     {
         "name": "赛博朋克2077",
         "types": ["角色扮演", "射击"],
-        "difficulty": 6,
-        "steam_url": "https://store.steampowered.com/app/1091500/Cyberpunk_2077/",
         "tags": ["RPG", "科幻", "开放世界"],
-        "reason_easy": "多种难度可选，剧情驱动型游戏，上手门槛低",
-        "reason_hard": "丰富的 Build 系统，为高玩提供了深度研究空间",
-        "reason_social": "无需联机，单人剧情为主",
-        "reason_solo": "优秀的单人剧情体验，沉浸感强",
-        "tutorial_count": 4,
-        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/1091500/header.jpg"
+        "steam_url": "https://store.steampowered.com/app/1091500/Cyberpunk_2077/",
+        "cover_url": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/1091500/header.jpg",
+        "short_desc": "在夜之城中书写你的传奇故事。"
     },
     {
         "name": "星露谷物语",
-        "types": ["模拟", "休闲", "角色扮演"],
-        "difficulty": 3,
-        "steam_url": "https://store.steampowered.com/app/413150/Stardew_Valley/",
+        "types": ["模拟", "休闲"],
         "tags": ["模拟", "休闲", "农场"],
-        "reason_easy": "上手简单，轻松治愈的农场生活",
-        "reason_hard": "深度经营系统，追求完美农场需要精心规划",
-        "reason_social": "支持多人联机，可以和好友一起经营农场",
-        "reason_solo": "单人游玩同样有趣，节奏由你掌控",
-        "tutorial_count": 4,
-        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/413150/header.jpg"
+        "steam_url": "https://store.steampowered.com/app/413150/Stardew_Valley/",
+        "cover_url": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/413150/header.jpg",
+        "short_desc": "经营你的农场，享受乡村生活。"
     },
     {
         "name": "空洞骑士",
         "types": ["动作", "冒险"],
-        "difficulty": 8,
-        "steam_url": "https://store.steampowered.com/app/367520/Hollow_Knight/",
         "tags": ["动作", "平台跳跃", "手绘风"],
-        "reason_easy": "操作简单易上手，难度曲线平滑",
-        "reason_hard": "后期的苦痛之路和神居挑战极具难度",
-        "reason_social": "纯单人游戏，专注个人体验",
-        "reason_solo": "沉浸式的单人冒险，推荐给喜欢探索的玩家",
-        "tutorial_count": 3,
-        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/367520/header.jpg"
+        "steam_url": "https://store.steampowered.com/app/367520/Hollow_Knight/",
+        "cover_url": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/367520/header.jpg",
+        "short_desc": "探索一个被遗忘的王国。"
     },
     {
         "name": "巫师3：狂猎",
         "types": ["角色扮演", "动作"],
-        "difficulty": 6,
-        "steam_url": "https://store.steampowered.com/app/292030/The_Witcher_3_Wild_Hunt/",
         "tags": ["RPG", "开放世界", "剧情"],
-        "reason_easy": "剧情驱动，多种难度可选",
-        "reason_hard": "死而无憾难度极具挑战性",
-        "reason_social": "纯单人游戏，沉浸式剧情体验",
-        "reason_solo": "剧情深度极高，适合喜欢故事驱动型游戏的玩家",
-        "tutorial_count": 5,
-        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/292030/header.jpg"
+        "steam_url": "https://store.steampowered.com/app/292030/The_Witcher_3_Wild_Hunt/",
+        "cover_url": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/292030/header.jpg",
+        "short_desc": "狩魔猎人的史诗冒险。"
     },
     {
         "name": "只狼：影逝二度",
         "types": ["动作"],
-        "difficulty": 9,
-        "steam_url": "https://store.steampowered.com/app/814380/Sekiro_Shadows_Die_Twice/",
         "tags": ["动作", "魂系", "日本战国"],
-        "reason_easy": "战斗节奏清晰，拼刀系统一旦上手极具爽感",
-        "reason_hard": "魂系游戏中最考验反应速度的作品之一",
-        "reason_social": "纯单人游戏",
-        "reason_solo": "单人挑战，成就感极强",
-        "tutorial_count": 3,
-        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/814380/header.jpg"
+        "steam_url": "https://store.steampowered.com/app/814380/Sekiro_Shadows_Die_Twice/",
+        "cover_url": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/814380/header.jpg",
+        "short_desc": "在战国时代展开生死对决。"
     },
     {
         "name": "文明6",
         "types": ["策略", "模拟"],
-        "difficulty": 7,
-        "steam_url": "https://store.steampowered.com/app/289070/Sid_Meiers_Civilization_VI/",
         "tags": ["策略", "回合制", "历史"],
-        "reason_easy": "有详细的新手教程，多种难度可选",
-        "reason_hard": "神级难度下需要精密的运营和策略规划",
-        "reason_social": "支持多人联机，可以和朋友一较高下",
-        "reason_solo": "单人模式同样有趣，一局可以玩很久",
-        "tutorial_count": 4,
-        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/289070/header.jpg"
+        "steam_url": "https://store.steampowered.com/app/289070/Sid_Meiers_Civilization_VI/",
+        "cover_url": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/289070/header.jpg",
+        "short_desc": "建立你的帝国，引领人类文明。"
     },
     {
         "name": "双人成行",
         "types": ["动作", "冒险"],
-        "difficulty": 4,
-        "steam_url": "https://store.steampowered.com/app/1426210/It_Takes_Two/",
         "tags": ["合作", "双人", "创意"],
-        "reason_easy": "难度适中，适合新手",
-        "reason_hard": "部分关卡需要精妙配合，挑战性十足",
-        "reason_social": "必须双人合作，是和朋友一起玩的最佳选择",
-        "reason_solo": "单人无法游玩，需要找一个朋友一起",
-        "tutorial_count": 2,
-        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/1426210/header.jpg"
+        "steam_url": "https://store.steampowered.com/app/1426210/It_Takes_Two/",
+        "cover_url": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/1426210/header.jpg",
+        "short_desc": "双人合作冒险，体验独特的游戏世界。"
     },
     {
         "name": "死亡搁浅",
         "types": ["冒险", "模拟"],
-        "difficulty": 5,
-        "steam_url": "https://store.steampowered.com/app/1190460/Death_Stranding/",
         "tags": ["冒险", "送货", "小岛秀夫"],
-        "reason_easy": "节奏舒缓，上手门槛低",
-        "reason_hard": "高难度下资源管理极具挑战",
-        "reason_social": "异步联机系统，可以互相帮助",
-        "reason_solo": "单人体验极佳，剧情深刻",
-        "tutorial_count": 2,
-        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/1190460/header.jpg"
+        "steam_url": "https://store.steampowered.com/app/1190460/Death_Stranding/",
+        "cover_url": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/1190460/header.jpg",
+        "short_desc": "在破碎的世界中重建连接。"
     },
     {
         "name": "CS:GO",
         "types": ["射击", "竞技"],
-        "difficulty": 7,
-        "steam_url": "https://store.steampowered.com/app/730/CounterStrike_Global_Offensive/",
         "tags": ["射击", "竞技", "多人"],
-        "reason_easy": "有休闲模式，新手友好",
-        "reason_hard": "竞技模式极具深度，需要团队配合和枪法",
-        "reason_social": "和朋友一起开黑的最佳选择",
-        "reason_solo": "单人匹配也能玩，但组队体验更佳",
-        "tutorial_count": 3,
-        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/730/header.jpg"
+        "steam_url": "https://store.steampowered.com/app/730/CounterStrike_Global_Offensive/",
+        "cover_url": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/730/header.jpg",
+        "short_desc": "经典的第一人称射击竞技游戏。"
     },
     {
         "name": "DOTA2",
         "types": ["策略", "竞技"],
-        "difficulty": 8,
-        "steam_url": "https://store.steampowered.com/app/570/DOTA_2/",
         "tags": ["MOBA", "竞技", "多人"],
-        "reason_easy": "有新手教程和 AI 模式",
-        "reason_hard": "竞技深度极高，需要百小时入门",
-        "reason_social": "团队游戏，和朋友开黑体验更佳",
-        "reason_solo": "单人匹配也能玩，但团队配合是核心",
-        "tutorial_count": 4,
-        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/570/header.jpg"
+        "steam_url": "https://store.steampowered.com/app/570/DOTA_2/",
+        "cover_url": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/570/header.jpg",
+        "short_desc": "最具深度的MOBA竞技游戏。"
     },
     {
         "name": "地平线5",
         "types": ["赛车", "竞速"],
-        "difficulty": 4,
-        "steam_url": "https://store.steampowered.com/app/1551360/Forza_Horizon_5/",
         "tags": ["赛车", "开放世界", "竞速"],
-        "reason_easy": "上手简单，辅助功能丰富",
-        "reason_hard": "高难度下需要精准操控",
-        "reason_social": "支持多人竞速，可以和好友飙车",
-        "reason_solo": "单人模式内容丰富，探索乐趣十足",
-        "tutorial_count": 2,
-        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/1551360/header.jpg"
+        "steam_url": "https://store.steampowered.com/app/1551360/Forza_Horizon_5/",
+        "cover_url": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/1551360/header.jpg",
+        "short_desc": "在墨西哥体验极速竞速的乐趣。"
     },
     {
         "name": "我的世界",
         "types": ["模拟", "冒险"],
-        "difficulty": 3,
-        "steam_url": "https://www.minecraft.net/zh-hans",
         "tags": ["沙盒", "创造", "生存"],
-        "reason_easy": "上手简单，自由度极高",
-        "reason_hard": "生存模式高难度下充满挑战",
-        "reason_social": "支持多人联机，和好友一起建造",
-        "reason_solo": "单人模式同样乐趣无穷",
-        "tutorial_count": 5,
-        "cover": "https://www.minecraft.net/content/dam/games/minecraft/key-art/GamesSubkey_Minecraft_003.jpg"
-    },
+        "steam_url": "https://www.minecraft.net/zh-hans",
+        "cover_url": "https://www.minecraft.net/content/dam/games/minecraft/key-art/GamesSubkey_Minecraft_003.jpg",
+        "short_desc": "无限创造和探索的沙盒世界。"
+    }
 ]
-
 def get_recommendations(user_data):
     """根据用户问卷数据生成个性化游戏推荐"""
     user_types = user_data.get("game_types", [])
