@@ -362,7 +362,317 @@ def show_game_search():
                     st.error("无法获取游戏详情，请检查 AppID 是否正确")
 
 # ==========================================
-# 2. 用户注册
+# 2. 游戏推荐引擎
+# ==========================================
+GAME_DATABASE = [
+    {
+        "name": "黑神话：悟空",
+        "types": ["动作", "角色扮演"],
+        "difficulty": 8,
+        "steam_url": "https://store.steampowered.com/app/2358720/Black_Myth_Wukong/",
+        "tags": ["动作", "冒险", "中国神话"],
+        "reason_easy": "虽然有一定难度，但战斗系统设计精妙，新手也能快速上手",
+        "reason_hard": "极具挑战性的 Boss 战，适合喜欢硬核动作的玩家",
+        "reason_social": "游戏内无联机，适合享受单人沉浸式体验的玩家",
+        "reason_solo": "单人剧情体验极佳，适合独自探索",
+        "tutorial_count": 3,
+        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/2358720/header.jpg"
+    },
+    {
+        "name": "艾尔登法环",
+        "types": ["动作", "角色扮演"],
+        "difficulty": 9,
+        "steam_url": "https://store.steampowered.com/app/1245620/Elden_Ring/",
+        "tags": ["动作", "开放世界", "魂系"],
+        "reason_easy": "开放世界设计让玩家可以自由探索，遇到困难时可以选择绕路",
+        "reason_hard": "魂系游戏的巅峰之作，极具挑战性",
+        "reason_social": "支持联机合作，可以和好友一起挑战",
+        "reason_solo": "单人探索体验极佳，沉浸感十足",
+        "tutorial_count": 5,
+        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/1245620/header.jpg"
+    },
+    {
+        "name": "赛博朋克2077",
+        "types": ["角色扮演", "射击"],
+        "difficulty": 6,
+        "steam_url": "https://store.steampowered.com/app/1091500/Cyberpunk_2077/",
+        "tags": ["RPG", "科幻", "开放世界"],
+        "reason_easy": "多种难度可选，剧情驱动型游戏，上手门槛低",
+        "reason_hard": "丰富的 Build 系统，为高玩提供了深度研究空间",
+        "reason_social": "无需联机，单人剧情为主",
+        "reason_solo": "优秀的单人剧情体验，沉浸感强",
+        "tutorial_count": 4,
+        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/1091500/header.jpg"
+    },
+    {
+        "name": "星露谷物语",
+        "types": ["模拟", "休闲", "角色扮演"],
+        "difficulty": 3,
+        "steam_url": "https://store.steampowered.com/app/413150/Stardew_Valley/",
+        "tags": ["模拟", "休闲", "农场"],
+        "reason_easy": "上手简单，轻松治愈的农场生活",
+        "reason_hard": "深度经营系统，追求完美农场需要精心规划",
+        "reason_social": "支持多人联机，可以和好友一起经营农场",
+        "reason_solo": "单人游玩同样有趣，节奏由你掌控",
+        "tutorial_count": 4,
+        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/413150/header.jpg"
+    },
+    {
+        "name": "空洞骑士",
+        "types": ["动作", "冒险"],
+        "difficulty": 8,
+        "steam_url": "https://store.steampowered.com/app/367520/Hollow_Knight/",
+        "tags": ["动作", "平台跳跃", "手绘风"],
+        "reason_easy": "操作简单易上手，难度曲线平滑",
+        "reason_hard": "后期的苦痛之路和神居挑战极具难度",
+        "reason_social": "纯单人游戏，专注个人体验",
+        "reason_solo": "沉浸式的单人冒险，推荐给喜欢探索的玩家",
+        "tutorial_count": 3,
+        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/367520/header.jpg"
+    },
+    {
+        "name": "巫师3：狂猎",
+        "types": ["角色扮演", "动作"],
+        "difficulty": 6,
+        "steam_url": "https://store.steampowered.com/app/292030/The_Witcher_3_Wild_Hunt/",
+        "tags": ["RPG", "开放世界", "剧情"],
+        "reason_easy": "剧情驱动，多种难度可选",
+        "reason_hard": "死而无憾难度极具挑战性",
+        "reason_social": "纯单人游戏，沉浸式剧情体验",
+        "reason_solo": "剧情深度极高，适合喜欢故事驱动型游戏的玩家",
+        "tutorial_count": 5,
+        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/292030/header.jpg"
+    },
+    {
+        "name": "只狼：影逝二度",
+        "types": ["动作"],
+        "difficulty": 9,
+        "steam_url": "https://store.steampowered.com/app/814380/Sekiro_Shadows_Die_Twice/",
+        "tags": ["动作", "魂系", "日本战国"],
+        "reason_easy": "战斗节奏清晰，拼刀系统一旦上手极具爽感",
+        "reason_hard": "魂系游戏中最考验反应速度的作品之一",
+        "reason_social": "纯单人游戏",
+        "reason_solo": "单人挑战，成就感极强",
+        "tutorial_count": 3,
+        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/814380/header.jpg"
+    },
+    {
+        "name": "文明6",
+        "types": ["策略", "模拟"],
+        "difficulty": 7,
+        "steam_url": "https://store.steampowered.com/app/289070/Sid_Meiers_Civilization_VI/",
+        "tags": ["策略", "回合制", "历史"],
+        "reason_easy": "有详细的新手教程，多种难度可选",
+        "reason_hard": "神级难度下需要精密的运营和策略规划",
+        "reason_social": "支持多人联机，可以和朋友一较高下",
+        "reason_solo": "单人模式同样有趣，一局可以玩很久",
+        "tutorial_count": 4,
+        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/289070/header.jpg"
+    },
+    {
+        "name": "双人成行",
+        "types": ["动作", "冒险"],
+        "difficulty": 4,
+        "steam_url": "https://store.steampowered.com/app/1426210/It_Takes_Two/",
+        "tags": ["合作", "双人", "创意"],
+        "reason_easy": "难度适中，适合新手",
+        "reason_hard": "部分关卡需要精妙配合，挑战性十足",
+        "reason_social": "必须双人合作，是和朋友一起玩的最佳选择",
+        "reason_solo": "单人无法游玩，需要找一个朋友一起",
+        "tutorial_count": 2,
+        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/1426210/header.jpg"
+    },
+    {
+        "name": "死亡搁浅",
+        "types": ["冒险", "模拟"],
+        "difficulty": 5,
+        "steam_url": "https://store.steampowered.com/app/1190460/Death_Stranding/",
+        "tags": ["冒险", "送货", "小岛秀夫"],
+        "reason_easy": "节奏舒缓，上手门槛低",
+        "reason_hard": "高难度下资源管理极具挑战",
+        "reason_social": "异步联机系统，可以互相帮助",
+        "reason_solo": "单人体验极佳，剧情深刻",
+        "tutorial_count": 2,
+        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/1190460/header.jpg"
+    },
+    {
+        "name": "CS:GO",
+        "types": ["射击", "竞技"],
+        "difficulty": 7,
+        "steam_url": "https://store.steampowered.com/app/730/CounterStrike_Global_Offensive/",
+        "tags": ["射击", "竞技", "多人"],
+        "reason_easy": "有休闲模式，新手友好",
+        "reason_hard": "竞技模式极具深度，需要团队配合和枪法",
+        "reason_social": "和朋友一起开黑的最佳选择",
+        "reason_solo": "单人匹配也能玩，但组队体验更佳",
+        "tutorial_count": 3,
+        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/730/header.jpg"
+    },
+    {
+        "name": "DOTA2",
+        "types": ["策略", "竞技"],
+        "difficulty": 8,
+        "steam_url": "https://store.steampowered.com/app/570/DOTA_2/",
+        "tags": ["MOBA", "竞技", "多人"],
+        "reason_easy": "有新手教程和 AI 模式",
+        "reason_hard": "竞技深度极高，需要百小时入门",
+        "reason_social": "团队游戏，和朋友开黑体验更佳",
+        "reason_solo": "单人匹配也能玩，但团队配合是核心",
+        "tutorial_count": 4,
+        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/570/header.jpg"
+    },
+    {
+        "name": "地平线5",
+        "types": ["赛车", "竞速"],
+        "difficulty": 4,
+        "steam_url": "https://store.steampowered.com/app/1551360/Forza_Horizon_5/",
+        "tags": ["赛车", "开放世界", "竞速"],
+        "reason_easy": "上手简单，辅助功能丰富",
+        "reason_hard": "高难度下需要精准操控",
+        "reason_social": "支持多人竞速，可以和好友飙车",
+        "reason_solo": "单人模式内容丰富，探索乐趣十足",
+        "tutorial_count": 2,
+        "cover": "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/1551360/header.jpg"
+    },
+    {
+        "name": "我的世界",
+        "types": ["模拟", "冒险"],
+        "difficulty": 3,
+        "steam_url": "https://www.minecraft.net/zh-hans",
+        "tags": ["沙盒", "创造", "生存"],
+        "reason_easy": "上手简单，自由度极高",
+        "reason_hard": "生存模式高难度下充满挑战",
+        "reason_social": "支持多人联机，和好友一起建造",
+        "reason_solo": "单人模式同样乐趣无穷",
+        "tutorial_count": 5,
+        "cover": "https://www.minecraft.net/content/dam/games/minecraft/key-art/GamesSubkey_Minecraft_003.jpg"
+    },
+]
+
+def get_recommendations(user_data):
+    """根据用户问卷数据生成个性化游戏推荐"""
+    user_types = user_data.get("game_types", [])
+    user_skill = user_data.get("gaming_skill", 5)
+    quit_reasons = user_data.get("quit_reason", [])
+    social_preference = user_data.get("social_preference", 5)
+    
+    recommendations = []
+    
+    for game in GAME_DATABASE:
+        score = 0
+        reasons = []
+        
+        # 1. 类型匹配（核心权重）
+        matched_types = [t for t in user_types if t in game["types"]]
+        if matched_types:
+            score += 30 * (len(matched_types) / len(game["types"]))
+            reasons.append(f"符合你喜欢的 {', '.join(matched_types)} 类型")
+        else:
+            # 部分匹配：如果有任一类型重合
+            for ut in user_types:
+                for gt in game["types"]:
+                    if ut in gt or gt in ut:
+                        score += 10
+                        reasons.append(f"与 {gt} 类型相关")
+                        break
+                else:
+                    continue
+                break
+        
+        # 2. 难度适配
+        if user_skill <= 3:
+            if game["difficulty"] <= 4:
+                score += 20
+                reasons.append("难度适中，适合新手入门")
+            elif game["difficulty"] <= 6:
+                score += 10
+                reasons.append("有一定挑战性，但新手也能玩")
+        elif user_skill <= 6:
+            if 4 <= game["difficulty"] <= 7:
+                score += 20
+                reasons.append("难度平衡，适合中等水平玩家")
+            elif game["difficulty"] <= 4:
+                score += 10
+                reasons.append("操作简单，适合放松游玩")
+        else:
+            if game["difficulty"] >= 7:
+                score += 20
+                reasons.append("极具挑战性，适合高水平玩家")
+            elif game["difficulty"] >= 5:
+                score += 10
+                reasons.append("有一定难度，值得挑战")
+        
+        # 3. 弃坑原因适配
+        if quit_reasons:
+            if "没时间" in quit_reasons:
+                if game["difficulty"] <= 5:
+                    score += 10
+                    reasons.append("学习成本低，适合碎片化时间游玩")
+                if "休闲" in game["types"] or "模拟" in game["types"]:
+                    score += 5
+                    reasons.append("节奏舒缓，无需长期连续投入")
+            
+            if "太难了" in quit_reasons:
+                if game["difficulty"] <= 5:
+                    score += 15
+                    reasons.append("难度友好，不用担心卡关")
+                elif game["difficulty"] <= 6:
+                    score += 8
+                    reasons.append("有难度选项，可以自行调整")
+            
+            if "没朋友一起玩" in quit_reasons:
+                if "合作" in game["tags"] or "双人" in game["tags"]:
+                    score += 15
+                    reasons.append("支持多人联机，可以和朋友一起玩")
+                elif "多人" in game["tags"]:
+                    score += 10
+                    reasons.append("有多人模式，可以和陌生人组队")
+                else:
+                    score += 8
+                    reasons.append("纯单人游戏，不需要朋友也能玩")
+            
+            if "剧情无聊" in quit_reasons:
+                if "剧情" in game["tags"] or "RPG" in game["types"]:
+                    score += 15
+                    reasons.append("剧情深度优秀，故事引人入胜")
+            
+            if "内容太少" in quit_reasons:
+                if "开放世界" in game["tags"] or "沙盒" in game["tags"]:
+                    score += 15
+                    reasons.append("内容丰富，可玩性高")
+                elif game["tutorial_count"] >= 3:
+                    score += 10
+                    reasons.append("社区有丰富攻略，不用担心没有内容")
+        
+        # 4. 社区教程丰富度加成
+        if game["tutorial_count"] >= 4:
+            score += 5
+            reasons.append("社区有大量教程资源可供参考")
+        
+        # 5. 社交偏好适配
+        if social_preference >= 7:
+            if "多人" in game["tags"] or "合作" in game["tags"]:
+                score += 10
+                reasons.append("适合联机/社交，能认识新朋友")
+        else:
+            if "单人" in game["tags"] or "剧情" in game["tags"]:
+                score += 8
+                reasons.append("适合独自享受，沉浸感强")
+        
+        # 避免重复原因
+        reasons = list(set(reasons))
+        
+        recommendations.append({
+            "game": game,
+            "score": score,
+            "reasons": reasons[:3]
+        })
+    
+    recommendations.sort(key=lambda x: x["score"], reverse=True)
+    return recommendations[:6]
+
+# ==========================================
+# 3. 用户注册 + 问卷 + 实时推荐
 # ==========================================
 def show_registration_survey():
     st.subheader("🧭 欢迎加入 Compass！请完成玩家档案")
@@ -414,532 +724,4 @@ def show_registration_survey():
         st.markdown("#### 📝 主观评分（1-10）")
         col1, col2, col3 = st.columns(3)
         with col1:
-            gaming_skill = st.slider("技术水平", 1, 10, 5)
-        with col2:
-            social_preference = st.slider("社交偏好", 1, 10, 5)
-        with col3:
-            completionist = st.slider("成就追求", 1, 10, 5)
-
-        submitted = st.form_submit_button("🚀 加入 Compass")
-
-        if submitted:
-            if not username.strip():
-                st.error("请输入昵称！")
-                return None
-
-            user_data = {
-                "username": username.strip(),
-                "gender": gender,
-                "age": age,
-                "game_types": game_types,
-                "play_time": play_time,
-                "gaming_years": gaming_years,
-                "weekly_frequency": weekly_frequency,
-                "quit_reason": quit_reason,
-                "purchase_factor": purchase_factor,
-                "gaming_skill": gaming_skill,
-                "social_preference": social_preference,
-                "completionist": completionist,
-                "register_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
-
-            db = load_json_db(USER_DATA_FILE)
-            db[username.strip()] = user_data
-            save_json_db(USER_DATA_FILE, db)
-            log_activity(username.strip(), "注册")
-
-            st.success(f"✅ 欢迎来到 Compass，{username}！")
-            return username
-    return None
-
-# ==========================================
-# 3. 数据科学看板
-# ==========================================
-def show_deep_data_insights():
-    st.subheader("📊 Compass 数据科学看板")
-    user_db = load_json_db(USER_DATA_FILE)
-
-    if len(user_db) == 0:
-        st.info("📭 暂无玩家数据")
-        return
-
-    df = pd.DataFrame(user_db).T.reset_index().rename(columns={"index": "用户名"})
-    st.success(f"📌 基于 {len(user_db)} 位玩家的数据分析")
-
-    st.markdown("---")
-
-    # ========== 图表部分 ==========
-    col1, col2 = st.columns(2)
-    with col1:
-        gender_counts = df["gender"].value_counts().reset_index()
-        gender_counts.columns = ["性别", "人数"]
-        fig1 = px.pie(gender_counts, values="人数", names="性别", color_discrete_sequence=px.colors.qualitative.Set2)
-        fig1.update_layout(height=280, title="性别分布")
-        st.plotly_chart(fig1, use_container_width=True)
-
-        time_counts = df["play_time"].value_counts().reset_index()
-        time_counts.columns = ["时长", "人数"]
-        time_order = ["<1小时", "1-3小时", "3-5小时", "5-8小时", "8小时以上"]
-        time_counts["时长"] = pd.Categorical(time_counts["时长"], categories=time_order, ordered=True)
-        time_counts = time_counts.sort_values("时长")
-        fig2 = px.bar(time_counts, x="时长", y="人数", color="时长", color_discrete_sequence=px.colors.qualitative.Pastel)
-        fig2.update_layout(height=280, title="游戏时长分布", showlegend=False)
-        st.plotly_chart(fig2, use_container_width=True)
-
-    with col2:
-        all_types = []
-        for types in df["game_types"]:
-            if isinstance(types, list):
-                all_types.extend(types)
-        if all_types:
-            type_counts = pd.Series(all_types).value_counts().reset_index()
-            type_counts.columns = ["游戏类型", "人数"]
-            fig3 = px.bar(type_counts, x="人数", y="游戏类型", orientation="h", color="人数", color_continuous_scale="Blues")
-            fig3.update_layout(height=280, title="热门游戏类型", showlegend=False)
-            st.plotly_chart(fig3, use_container_width=True)
-
-        all_reasons = []
-        for reasons in df["quit_reason"]:
-            if isinstance(reasons, list):
-                all_reasons.extend(reasons)
-        if all_reasons:
-            reason_counts = pd.Series(all_reasons).value_counts().reset_index()
-            reason_counts.columns = ["弃坑原因", "人数"]
-            fig4 = px.bar(reason_counts, x="人数", y="弃坑原因", orientation="h", color="人数", color_continuous_scale="Oranges")
-            fig4.update_layout(height=280, title="弃坑原因", showlegend=False)
-            st.plotly_chart(fig4, use_container_width=True)
-
-    st.markdown("---")
-    st.subheader("🔍 游戏类型 × 弃坑原因")
-    if len(user_db) >= 5:
-        cross_data = []
-        for _, row in df.iterrows():
-            types = row["game_types"] if isinstance(row["game_types"], list) else []
-            reasons = row["quit_reason"] if isinstance(row["quit_reason"], list) else []
-            for t in types:
-                for r in reasons:
-                    cross_data.append({"游戏类型": t, "弃坑原因": r})
-        if cross_data:
-            cross_df = pd.DataFrame(cross_data)
-            cross_tab = pd.crosstab(cross_df["游戏类型"], cross_df["弃坑原因"])
-            fig5 = px.imshow(cross_tab, text_auto=True, color_continuous_scale="RdBu_r", aspect="auto")
-            fig5.update_layout(height=380)
-            st.plotly_chart(fig5, use_container_width=True)
-            st.caption("💡 颜色越深表示该类型玩家更容易因该原因弃坑")
-
-    st.markdown("---")
-    st.subheader("🧩 玩家智能分群")
-    if len(user_db) >= 8:
-        try:
-            cluster_features = []
-            for _, row in df.iterrows():
-                time_map = {"<1小时": 0.5, "1-3小时": 2, "3-5小时": 4, "5-8小时": 6.5, "8小时以上": 9}
-                freq_map = {"偶尔（1-2天）": 1.5, "经常（3-4天）": 3.5, "频繁（5-6天）": 5.5, "几乎每天": 7}
-                features = [
-                    time_map.get(row.get("play_time", "1-3小时"), 2),
-                    freq_map.get(row.get("weekly_frequency", "经常（3-4天）"), 3.5),
-                    row.get("gaming_years", 5),
-                    row.get("gaming_skill", 5),
-                    row.get("social_preference", 5),
-                    row.get("completionist", 5),
-                    len(row.get("game_types", [])),
-                    len(row.get("quit_reason", []))
-                ]
-                cluster_features.append(features)
-
-            scaler = StandardScaler()
-            scaled = scaler.fit_transform(cluster_features)
-            kmeans = KMeans(n_clusters=4, random_state=42, n_init=10)
-            df["分群"] = kmeans.fit_predict(scaled)
-
-            cluster_names = {}
-            for cid in df["分群"].unique():
-                subset = df[df["分群"] == cid]
-                avg_social = subset["social_preference"].mean()
-                avg_time = subset["play_time"].apply(lambda x: {"<1小时": 0.5, "1-3小时": 2, "3-5小时": 4, "5-8小时": 6.5, "8小时以上": 9}.get(x, 2)).mean()
-                if avg_social > 6 and avg_time > 4:
-                    name = "🎮 社交硬核玩家"
-                elif avg_social > 6:
-                    name = "🤝 社交休闲玩家"
-                elif avg_time > 4:
-                    name = "🏆 独狼硬核玩家"
-                else:
-                    name = "🌿 休闲探索玩家"
-                cluster_names[cid] = name
-
-            df["分群名称"] = df["分群"].map(cluster_names)
-
-            col1, col2 = st.columns(2)
-            with col1:
-                counts = df["分群名称"].value_counts().reset_index()
-                counts.columns = ["类型", "人数"]
-                fig6 = px.pie(counts, values="人数", names="类型", color_discrete_sequence=px.colors.qualitative.Set3)
-                fig6.update_layout(height=300, title="玩家分群")
-                st.plotly_chart(fig6, use_container_width=True)
-
-            with col2:
-                radar_data = []
-                for cid in sorted(df["分群"].unique()):
-                    subset = df[df["分群"] == cid]
-                    radar_data.append({
-                        "群组": cluster_names[cid],
-                        "技术水平": subset["gaming_skill"].mean(),
-                        "社交偏好": subset["social_preference"].mean(),
-                        "成就追求": subset["completionist"].mean(),
-                        "游戏龄": subset["gaming_years"].mean()
-                    })
-                if radar_data:
-                    radar_df = pd.DataFrame(radar_data)
-                    fig7 = go.Figure()
-                    for _, row in radar_df.iterrows():
-                        fig7.add_trace(go.Scatterpolar(
-                            r=[row["技术水平"], row["社交偏好"], row["成就追求"], row["游戏龄"]],
-                            theta=["技术水平", "社交偏好", "成就追求", "游戏龄"],
-                            fill='toself',
-                            name=row["群组"]
-                        ))
-                    fig7.update_layout(height=300, polar=dict(radialaxis=dict(visible=True, range=[0, 10])))
-                    st.plotly_chart(fig7, use_container_width=True)
-        except Exception as e:
-            st.warning(f"聚类分析需要更多数据")
-
-    with st.expander("📋 查看数据汇总"):
-        st.dataframe(df, use_container_width=True)
-
-    # ================================================================
-    # ========== 🧠 数据洞察报告 ==========
-    # ================================================================
-    st.markdown("---")
-    st.subheader("🧠 数据洞察报告")
-    st.caption("基于以上数据的自动分析，为社区运营提供数据支撑")
-
-    # 提取关键指标
-    total_users = len(df)
-    top_genre = "未知"
-    top_genre_count = 0
-    if all_types:
-        type_counts = pd.Series(all_types).value_counts()
-        top_genre = type_counts.index[0]
-        top_genre_count = type_counts.iloc[0]
-
-    top_reason = "未知"
-    top_reason_count = 0
-    if all_reasons:
-        reason_counts = pd.Series(all_reasons).value_counts()
-        top_reason = reason_counts.index[0]
-        top_reason_count = reason_counts.iloc[0]
-
-    male_pct = len(df[df["gender"] == "男"]) / total_users * 100 if total_users > 0 else 0
-    female_pct = len(df[df["gender"] == "女"]) / total_users * 100 if total_users > 0 else 0
-
-    age_counts = df["age"].value_counts()
-    top_age = age_counts.index[0] if len(age_counts) > 0 else "未知"
-
-    time_counts = df["play_time"].value_counts()
-    top_time = time_counts.index[0] if len(time_counts) > 0 else "未知"
-
-    cluster_names_list = []
-    if "分群名称" in df.columns:
-        cluster_names_list = df["分群名称"].value_counts().index.tolist()
-
-    # ---- 生成报告内容 ----
-    report_lines = []
-
-    report_lines.append(f"📊 **社区概览**")
-    report_lines.append(f"- 社区当前共有 **{total_users}** 位注册玩家。")
-
-    if male_pct > 0 or female_pct > 0:
-        report_lines.append(f"- 性别比例：男性 {male_pct:.1f}%，女性 {female_pct:.1f}%。")
-
-    report_lines.append(f"- 核心玩家年龄段为 **{top_age}**（{age_counts[top_age]} 人，占比 {age_counts[top_age]/total_users*100:.1f}%）。")
-
-    if all_types:
-        report_lines.append("")
-        report_lines.append(f"🎯 **热门游戏类型分析**")
-        report_lines.append(f"- **{top_genre}** 是最受欢迎的游戏类型，被 {top_genre_count} 位玩家提及（{top_genre_count/total_users*100:.1f}%）。")
-        report_lines.append(f"- 排名前五的类型：{', '.join(type_counts.head(5).index.tolist())}。")
-        report_lines.append(f"- 💡 **运营建议**：优先增加 **{top_genre}** 类游戏的教程内容，该品类覆盖了超过 {top_genre_count/total_users*100:.0f}% 的玩家。")
-
-    if all_reasons:
-        report_lines.append("")
-        report_lines.append(f"⚠️ **弃坑风险分析**")
-        report_lines.append(f"- **{top_reason}** 是玩家弃坑的首要原因（{top_reason_count} 人，{top_reason_count/total_users*100:.1f}%）。")
-        report_lines.append(f"- 主要弃坑原因 Top 3：{', '.join(reason_counts.head(3).index.tolist())}。")
-        
-        if top_reason == "没时间":
-            report_lines.append(f"- 💡 **运营建议**：创作更多 **碎片化内容**（3-5分钟可读完的微攻略），降低玩家的时间门槛。")
-        elif top_reason == "太难了":
-            report_lines.append(f"- 💡 **运营建议**：重点制作 **新手入门教程** 和 **避坑指南**，帮助玩家跨过初始难度障碍。")
-        elif top_reason == "没朋友一起玩":
-            report_lines.append(f"- 💡 **运营建议**：强化社区互动功能，组织 **联机活动** 和 **组队匹配**，帮助玩家找到玩伴。")
-
-    report_lines.append("")
-    report_lines.append(f"⏰ **玩家活跃度分析**")
-    report_lines.append(f"- 最主流的游戏时长区间是 **{top_time}**，占比 {time_counts[top_time]/total_users*100:.1f}%。")
-    if top_time in ["3-5小时", "5-8小时", "8小时以上"]:
-        report_lines.append(f"- 社区以 **中度至重度玩家** 为主，建议提供更多 **深度攻略** 和 **进阶内容**。")
-    else:
-        report_lines.append(f"- 社区以 **轻度至中度玩家** 为主，建议提供更多 **快速上手指南** 和 **碎片化内容**。")
-
-    if cluster_names_list:
-        report_lines.append("")
-        report_lines.append(f"👥 **玩家分群洞察**")
-        report_lines.append(f"- 通过 K-Means 聚类，玩家分为 {len(cluster_names_list)} 个典型群体：{', '.join(cluster_names_list)}。")
-        report_lines.append(f"- 💡 **运营建议**：针对不同群体定制内容策略——")
-        for name in cluster_names_list:
-            if "社交" in name:
-                report_lines.append(f"  - {name}：重点推送 **联机活动** 和 **组队招募** 内容。")
-            elif "硬核" in name:
-                report_lines.append(f"  - {name}：重点推送 **深度攻略**、**速通技巧** 和 **高难度挑战** 内容。")
-            elif "休闲" in name:
-                report_lines.append(f"  - {name}：重点推送 **轻松向内容**、**剧情解析** 和 **入门指南**。")
-            else:
-                report_lines.append(f"  - {name}：根据其游戏偏好推送个性化内容。")
-
-    report_lines.append("")
-    report_lines.append("---")
-    report_lines.append("📌 **一句话总结**")
-    
-    if top_reason == "没时间":
-        summary = f"Compass 社区的玩家以 **{top_genre}** 类游戏爱好者为主，最大痛点是 **时间不足**。建议打造 **碎片化知识库**，让玩家在有限时间内高效获取游戏信息。"
-    elif top_reason == "太难了":
-        summary = f"Compass 社区的玩家以 **{top_genre}** 类游戏爱好者为主，最大痛点是 **游戏难度过高**。建议建立 **分级教程体系**，从入门到精通，帮助玩家逐步成长。"
-    elif top_reason == "没朋友一起玩":
-        summary = f"Compass 社区的玩家以 **{top_genre}** 类游戏爱好者为主，最大痛点是 **缺少玩伴**。建议强化 **社区社交功能**，将 Compass 打造为玩家的 **联机枢纽**。"
-    else:
-        summary = f"Compass 社区的玩家以 **{top_genre}** 类游戏爱好者为主。建议围绕该品类持续产出内容，同时关注玩家反馈动态调整内容策略。"
-    
-    report_lines.append(f"> {summary}")
-
-    if total_users < 10:
-        report_lines.append("")
-        report_lines.append("⚠️ **注意**：当前数据样本较少（< 10 人），以上洞察仅供参考。建议持续招募更多玩家，以获得更可靠的统计结论。")
-
-    # ---- 渲染报告 ----
-    for line in report_lines:
-        if line.startswith("---"):
-            st.markdown("---")
-        elif line.startswith("> "):
-            st.info(line[2:])
-        elif line.startswith("📌"):
-            st.markdown(line)
-        else:
-            st.write(line)
-
-    st.caption(f"📅 报告自动生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}")
-
-# ==========================================
-# 4. 教程功能
-# ==========================================
-def show_publish_strategy():
-    st.subheader("✍️ 发布游戏教程/心得")
-    st.caption("分享你的经验，帮助其他玩家")
-
-    with st.form("strategy_form"):
-        game_name = st.text_input("游戏名称")
-        title = st.text_input("教程标题")
-        tags = st.multiselect("标签", ["新手向", "进阶", "避坑指南", "速通", "全收集", "剧情解析", "职业攻略"])
-        content = st.text_area("教程内容（支持Markdown）", height=300)
-        steam_url = st.text_input("Steam 链接（可选）", placeholder="https://store.steampowered.com/app/xxxxx/")
-        submitted = st.form_submit_button("📤 发布")
-
-        if submitted and game_name and title and content:
-            db = load_json_db(STRATEGY_DB_FILE)
-            sid = f"strategy_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-            db[sid] = {
-                "game_name": game_name,
-                "title": title,
-                "tags": tags,
-                "content": content,
-                "author": st.session_state.get("username", "匿名"),
-                "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "steam_url": steam_url if steam_url else ""
-            }
-            save_json_db(STRATEGY_DB_FILE, db)
-            log_activity(st.session_state.get("username", "匿名"), "发布教程")
-            st.success("🎉 教程发布成功！")
-            st.balloons()
-
-def show_strategy_list():
-    st.subheader("📚 教程库")
-    st.caption("每一位玩家的经验，都是新手的指南针")
-
-    db = load_json_db(STRATEGY_DB_FILE)
-    if not db:
-        st.info("📭 暂无教程，快来发布第一篇吧！")
-        return
-
-    search = st.text_input("🔍 搜索游戏", placeholder="输入游戏名称...")
-
-    found = False
-    for sid, item in db.items():
-        if search and search.lower() not in item.get("game_name", "").lower():
-            continue
-        found = True
-        with st.expander(f"🎯 {item['game_name']} - {item['title']} (by {item.get('author', '匿名')})"):
-            st.caption(f"🏷️ 标签: {', '.join(item.get('tags', []))} | 📅 {item.get('time', '')}")
-
-            if item.get("steam_url"):
-                st.markdown(f"🔗 **Steam 链接:** [点击访问 {item['game_name']}]({item['steam_url']})")
-
-            st.markdown("---")
-            st.markdown(item["content"])
-
-    if search and not found:
-        st.info(f"未找到 '{search}' 相关的教程，去发布一篇吧！")
-
-# ==========================================
-# 5. 用户画像
-# ==========================================
-def show_user_profile():
-    username = st.session_state.get("username", "")
-    if not username:
-        st.warning("请先注册")
-        return
-
-    db = load_json_db(USER_DATA_FILE)
-    if username not in db:
-        st.warning("用户数据未找到")
-        return
-
-    user_data = db[username]
-    st.subheader(f"🧭 {username} 的玩家档案")
-
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("性别", user_data.get("gender", "-"))
-    with col2:
-        st.metric("年龄段", user_data.get("age", "-"))
-    with col3:
-        st.metric("游戏龄", f"{user_data.get('gaming_years', '-')} 年")
-    with col4:
-        st.metric("日均时长", user_data.get("play_time", "-"))
-
-    st.write("**🎯 喜欢的游戏类型**")
-    st.write(", ".join(user_data.get("game_types", [])))
-    st.write("**⚠️ 弃坑主因**")
-    st.write(", ".join(user_data.get("quit_reason", [])))
-
-# ==========================================
-# 6. 管理员面板
-# ==========================================
-def show_admin_panel():
-    st.subheader("🔐 管理员面板")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("📥 加载演示数据", use_container_width=True):
-            if generate_demo_users():
-                st.success("✅ 演示数据加载成功")
-                st.rerun()
-    with col2:
-        if st.button("🗑️ 清除所有数据", use_container_width=True):
-            if clear_demo_data():
-                st.success("✅ 数据已清除")
-                st.rerun()
-
-    user_db = load_json_db(USER_DATA_FILE)
-    strategy_db = load_json_db(STRATEGY_DB_FILE)
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("👥 注册玩家", len(user_db))
-    with col2:
-        st.metric("📝 教程数量", len(strategy_db))
-    with col3:
-        st.metric("📋 活动日志", len(load_json_db(ACTIVITY_LOG_FILE)))
-    st.caption("管理员密码: admin123")
-
-# ==========================================
-# 7. 主程序
-# ==========================================
-def main():
-    st.set_page_config(page_title="Compass · 游戏社区", page_icon="🧭", layout="wide")
-
-    if "username" not in st.session_state:
-        st.session_state.username = None
-    if "registered" not in st.session_state:
-        st.session_state.registered = False
-    if "admin_mode" not in st.session_state:
-        st.session_state.admin_mode = False
-
-    with st.sidebar:
-        st.title("🧭 Compass")
-        st.caption("用数据指引你的游戏之路")
-        st.markdown("---")
-
-        with st.expander("🔐 管理员入口"):
-            pwd = st.text_input("密码", type="password", placeholder="admin123")
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("🔓 进入", use_container_width=True):
-                    if pwd == "admin123":
-                        st.session_state.admin_mode = True
-                        generate_demo_users()
-                        st.success("✅ 管理员模式已开启")
-                        st.rerun()
-            with col2:
-                if st.button("🚪 退出", use_container_width=True):
-                    st.session_state.admin_mode = False
-                    st.rerun()
-            st.caption("🟢 管理员模式" if st.session_state.admin_mode else "⚪ 普通模式")
-
-        st.markdown("---")
-
-        if not st.session_state.registered:
-            username = show_registration_survey()
-            if username:
-                st.session_state.username = username
-                st.session_state.registered = True
-                st.rerun()
-        else:
-            st.success(f"👋 {st.session_state.username}")
-            if st.button("🚪 切换账号"):
-                st.session_state.registered = False
-                st.session_state.username = None
-                st.rerun()
-
-            user_db = load_json_db(USER_DATA_FILE)
-            st.metric("👥 社区人数", len(user_db))
-
-    if st.session_state.registered:
-        if st.session_state.admin_mode:
-            tabs = st.tabs([
-                "🔍 搜索游戏",
-                "📚 教程库",
-                "✍️ 发布教程",
-                "📊 数据看板",
-                "👤 我的档案",
-                "🔐 管理"
-            ])
-            with tabs[0]:
-                show_game_search()
-            with tabs[1]:
-                show_strategy_list()
-            with tabs[2]:
-                show_publish_strategy()
-            with tabs[3]:
-                show_deep_data_insights()
-            with tabs[4]:
-                show_user_profile()
-            with tabs[5]:
-                show_admin_panel()
-        else:
-            tabs = st.tabs([
-                "🔍 搜索游戏",
-                "📚 教程库",
-                "✍️ 发布教程",
-                "👤 我的档案"
-            ])
-            with tabs[0]:
-                show_game_search()
-            with tabs[1]:
-                show_strategy_list()
-            with tabs[2]:
-                show_publish_strategy()
-            with tabs[3]:
-                show_user_profile()
-    else:
-        st.info("👈 请先注册加入 Compass")
-
-if __name__ == "__main__":
-    main()
+            gaming_skill = st.slider("技术水平", 1, 10,
