@@ -143,7 +143,7 @@ def clear_demo_data():
         return False
 
 # ==========================================
-# 1. 备选游戏列表
+# 1. 备选游戏列表（当 Steam API 无法访问时使用）
 # ==========================================
 FALLBACK_GAME_LIST = [
     {"name": "黑神话：悟空", "appid": 2358720},
@@ -357,16 +357,12 @@ def show_game_search():
                     st.error("无法获取游戏详情，请检查 AppID 是否正确")
 
 # ==========================================
-# 2. 游戏推荐引擎
-# ==========================================
-# ==========================================
 # 2. 游戏推荐引擎（连接 Steam）
 # ==========================================
 
-def fetch_steam_hot_games(limit=30):
+def fetch_steam_hot_games(limit=20):
     """从 Steam 获取热门游戏列表"""
     try:
-        # 使用 Steam 的热门游戏 API（无需认证）
         url = "https://api.steampowered.com/ISteamApps/GetAppList/v2/"
         response = requests.get(url, timeout=15)
         if response.status_code != 200:
@@ -374,12 +370,8 @@ def fetch_steam_hot_games(limit=30):
         
         data = response.json()
         all_apps = data['applist']['apps']
-        
-        # 只保留有名字的游戏
         all_apps = [app for app in all_apps if app.get('name', '').strip()]
         
-        # 随机取 30 个作为演示（实际可改为按热度排序）
-        random.shuffle(all_apps)
         selected = all_apps[:limit]
         
         games = []
@@ -387,7 +379,6 @@ def fetch_steam_hot_games(limit=30):
             app_id = app['appid']
             name = app['name']
             
-            # 获取游戏详情（封面、简介、标签）
             detail_url = f"https://store.steampowered.com/api/appdetails?appids={app_id}&cc=cn&l=zh"
             try:
                 detail_resp = requests.get(detail_url, timeout=10)
@@ -396,18 +387,9 @@ def fetch_steam_hot_games(limit=30):
                     if detail_data.get(str(app_id), {}).get('success'):
                         data = detail_data[str(app_id)]['data']
                         
-                        # 提取类型
                         genres = [g['description'] for g in data.get('genres', [])][:2]
-                        
-                        # 提取标签
-                        tags = []
-                        if 'tags' in data:
-                            tags = list(data['tags'].keys())[:3]
-                        
-                        # 提取封面图
+                        tags = list(data.get('tags', {}).keys())[:3] if 'tags' in data else []
                         header_img = data.get('header_image', '')
-                        
-                        # 提取简介
                         short_desc = data.get('short_description', '')[:150]
                         
                         games.append({
@@ -418,7 +400,7 @@ def fetch_steam_hot_games(limit=30):
                             "steam_url": f"https://store.steampowered.com/app/{app_id}/",
                             "cover_url": header_img,
                             "short_desc": short_desc,
-                            "tutorial_count": 0  # 稍后从社区统计
+                            "tutorial_count": 0
                         })
             except:
                 continue
@@ -428,164 +410,10 @@ def fetch_steam_hot_games(limit=30):
         print(f"⚠️ 获取Steam热门游戏失败: {e}")
         return None
 
-def get_steam_games_for_recommendation():
-    """获取用于推荐的游戏列表（优先从 Steam 获取，失败时使用备选）"""
-    # 先尝试从 Steam 获取
-    games = fetch_steam_hot_games(30)
-    
-    if games and len(games) >= 5:
-        return games
-    
-    # 备选：使用本地游戏库（已包含热门游戏）
-    return FALLBACK_GAME_DATABASE
-
-def get_recommendations(user_data):
-    """根据用户问卷数据生成个性化游戏推荐（连接 Steam）"""
-    user_types = user_data.get("game_types", [])
-    user_skill = user_data.get("gaming_skill", 5)
-    quit_reasons = user_data.get("quit_reason", [])
-    social_preference = user_data.get("social_preference", 5)
-    
-    # 获取游戏列表（从 Steam）
-    games = get_steam_games_for_recommendation()
-    
-    if not games:
-        return []
-    
-    # 获取社区教程列表（用于统计教程数）
-    strategy_db = load_json_db(STRATEGY_DB_FILE)
-    tutorial_games = {}
-    for sid, item in strategy_db.items():
-        game_name = item.get('game_name', '')
-        if game_name:
-            tutorial_games[game_name] = tutorial_games.get(game_name, 0) + 1
-    
-    recommendations = []
-    
-    for game in games:
-        score = 0
-        reasons = []
-        
-        game_name = game.get('name', '')
-        game_types = game.get('types', [])
-        game_tags = game.get('tags', [])
-        game_tutorial_count = 0
-        
-        # 检查该游戏在社区是否有教程
-        for key in tutorial_games:
-            if game_name.lower() in key.lower() or key.lower() in game_name.lower():
-                game_tutorial_count = tutorial_games[key]
-                break
-        
-        # 1. 类型匹配
-        matched_types = [t for t in user_types if t in game_types or any(t in gt or gt in t for gt in game_types)]
-        if matched_types:
-            score += 30
-            reasons.append(f"符合你喜欢的 {', '.join(matched_types[:2])} 类型")
-        else:
-            # 部分匹配
-            for ut in user_types:
-                for gt in game_types:
-                    if ut in gt or gt in ut:
-                        score += 10
-                        reasons.append(f"与 {gt} 类型相关")
-                        break
-                else:
-                    continue
-                break
-        
-        # 2. 难度估算（基于标签）
-        difficulty = 5  # 默认中等
-        if any(t in ['魂系', '硬核', '竞技', '困难'] for t in game_tags):
-            difficulty = 8
-        elif any(t in ['休闲', '轻松', '治愈'] for t in game_tags):
-            difficulty = 3
-        
-        if user_skill <= 3:
-            if difficulty <= 4:
-                score += 20
-                reasons.append("难度适中，适合新手入门")
-            elif difficulty <= 6:
-                score += 10
-                reasons.append("有一定挑战性，但新手也能玩")
-        elif user_skill <= 6:
-            if 4 <= difficulty <= 7:
-                score += 20
-                reasons.append("难度平衡，适合中等水平玩家")
-            elif difficulty <= 4:
-                score += 10
-                reasons.append("操作简单，适合放松游玩")
-        else:
-            if difficulty >= 7:
-                score += 20
-                reasons.append("极具挑战性，适合高水平玩家")
-            elif difficulty >= 5:
-                score += 10
-                reasons.append("有一定难度，值得挑战")
-        
-        # 3. 弃坑原因适配
-        if quit_reasons:
-            if "没时间" in quit_reasons:
-                if difficulty <= 5:
-                    score += 10
-                    reasons.append("学习成本低，适合碎片化时间游玩")
-            
-            if "太难了" in quit_reasons:
-                if difficulty <= 5:
-                    score += 15
-                    reasons.append("难度友好，不用担心卡关")
-            
-            if "没朋友一起玩" in quit_reasons:
-                if any(t in ['多人', '合作', '联机'] for t in game_tags):
-                    score += 15
-                    reasons.append("支持多人联机，可以和朋友一起玩")
-                elif any(t in ['单人', '单机'] for t in game_tags):
-                    score += 8
-                    reasons.append("纯单人游戏，不需要朋友也能玩")
-            
-            if "剧情无聊" in quit_reasons:
-                if any(t in ['剧情', '角色扮演', 'RPG'] for t in game_tags + game_types):
-                    score += 15
-                    reasons.append("剧情深度优秀，故事引人入胜")
-        
-        # 4. 社区教程加成
-        if game_tutorial_count >= 2:
-            score += 10
-            reasons.append(f"社区有 {game_tutorial_count} 篇教程可供参考")
-        elif game_tutorial_count >= 1:
-            score += 5
-            reasons.append(f"社区有 {game_tutorial_count} 篇教程")
-        
-        # 5. 社交偏好
-        if social_preference >= 7:
-            if any(t in ['多人', '合作', '联机'] for t in game_tags):
-                score += 10
-                reasons.append("适合联机/社交，能认识新朋友")
-        else:
-            if any(t in ['单人', '单机', '剧情'] for t in game_tags):
-                score += 8
-                reasons.append("适合独自享受，沉浸感强")
-        
-        # 去重
-        reasons = list(set(reasons))
-        
-        # 如果有类型匹配或者原因够多，加入推荐列表
-        if reasons or score > 10:
-            recommendations.append({
-                "game": game,
-                "score": score,
-                "reasons": reasons[:3],
-                "tutorial_count": game_tutorial_count
-            })
-    
-    # 按得分排序，取前6名
-    recommendations.sort(key=lambda x: x["score"], reverse=True)
-    return recommendations[:6]
-
 # ==========================================
 # 备选游戏数据库（当 Steam API 失败时使用）
 # ==========================================
-FALLBACK_GAME_DATABASE = [
+GAME_DATABASE = [
     {
         "name": "黑神话：悟空",
         "types": ["动作", "角色扮演"],
@@ -699,27 +527,57 @@ FALLBACK_GAME_DATABASE = [
         "short_desc": "无限创造和探索的沙盒世界。"
     }
 ]
+
+def get_steam_games_for_recommendation():
+    """获取用于推荐的游戏列表（优先从 Steam 获取，失败时使用备选）"""
+    games = fetch_steam_hot_games(20)
+    if games and len(games) >= 5:
+        return games
+    return GAME_DATABASE
+
 def get_recommendations(user_data):
-    """根据用户问卷数据生成个性化游戏推荐"""
+    """根据用户问卷数据生成个性化游戏推荐（连接 Steam）"""
     user_types = user_data.get("game_types", [])
     user_skill = user_data.get("gaming_skill", 5)
     quit_reasons = user_data.get("quit_reason", [])
     social_preference = user_data.get("social_preference", 5)
     
+    games = get_steam_games_for_recommendation()
+    
+    if not games:
+        return []
+    
+    strategy_db = load_json_db(STRATEGY_DB_FILE)
+    tutorial_games = {}
+    for sid, item in strategy_db.items():
+        game_name = item.get('game_name', '')
+        if game_name:
+            tutorial_games[game_name] = tutorial_games.get(game_name, 0) + 1
+    
     recommendations = []
     
-    for game in GAME_DATABASE:
+    for game in games:
         score = 0
         reasons = []
         
-        # 1. 类型匹配（核心权重）
-        matched_types = [t for t in user_types if t in game["types"]]
+        game_name = game.get('name', '')
+        game_types = game.get('types', [])
+        game_tags = game.get('tags', [])
+        game_tutorial_count = 0
+        
+        for key in tutorial_games:
+            if game_name.lower() in key.lower() or key.lower() in game_name.lower():
+                game_tutorial_count = tutorial_games[key]
+                break
+        
+        # 1. 类型匹配
+        matched_types = [t for t in user_types if t in game_types or any(t in gt or gt in t for gt in game_types)]
         if matched_types:
-            score += 30 * (len(matched_types) / len(game["types"]))
-            reasons.append(f"符合你喜欢的 {', '.join(matched_types)} 类型")
+            score += 30
+            reasons.append(f"符合你喜欢的 {', '.join(matched_types[:2])} 类型")
         else:
             for ut in user_types:
-                for gt in game["types"]:
+                for gt in game_types:
                     if ut in gt or gt in ut:
                         score += 10
                         reasons.append(f"与 {gt} 类型相关")
@@ -728,93 +586,87 @@ def get_recommendations(user_data):
                     continue
                 break
         
-        # 2. 难度适配
+        # 2. 难度估算
+        difficulty = 5
+        if any(t in ['魂系', '硬核', '竞技', '困难'] for t in game_tags):
+            difficulty = 8
+        elif any(t in ['休闲', '轻松', '治愈'] for t in game_tags):
+            difficulty = 3
+        
         if user_skill <= 3:
-            if game["difficulty"] <= 4:
+            if difficulty <= 4:
                 score += 20
                 reasons.append("难度适中，适合新手入门")
-            elif game["difficulty"] <= 6:
+            elif difficulty <= 6:
                 score += 10
                 reasons.append("有一定挑战性，但新手也能玩")
         elif user_skill <= 6:
-            if 4 <= game["difficulty"] <= 7:
+            if 4 <= difficulty <= 7:
                 score += 20
                 reasons.append("难度平衡，适合中等水平玩家")
-            elif game["difficulty"] <= 4:
+            elif difficulty <= 4:
                 score += 10
                 reasons.append("操作简单，适合放松游玩")
         else:
-            if game["difficulty"] >= 7:
+            if difficulty >= 7:
                 score += 20
                 reasons.append("极具挑战性，适合高水平玩家")
-            elif game["difficulty"] >= 5:
+            elif difficulty >= 5:
                 score += 10
                 reasons.append("有一定难度，值得挑战")
         
         # 3. 弃坑原因适配
         if quit_reasons:
             if "没时间" in quit_reasons:
-                if game["difficulty"] <= 5:
+                if difficulty <= 5:
                     score += 10
                     reasons.append("学习成本低，适合碎片化时间游玩")
-                if "休闲" in game["types"] or "模拟" in game["types"]:
-                    score += 5
-                    reasons.append("节奏舒缓，无需长期连续投入")
             
             if "太难了" in quit_reasons:
-                if game["difficulty"] <= 5:
+                if difficulty <= 5:
                     score += 15
                     reasons.append("难度友好，不用担心卡关")
-                elif game["difficulty"] <= 6:
-                    score += 8
-                    reasons.append("有难度选项，可以自行调整")
             
             if "没朋友一起玩" in quit_reasons:
-                if "合作" in game["tags"] or "双人" in game["tags"]:
+                if any(t in ['多人', '合作', '联机'] for t in game_tags):
                     score += 15
                     reasons.append("支持多人联机，可以和朋友一起玩")
-                elif "多人" in game["tags"]:
-                    score += 10
-                    reasons.append("有多人模式，可以和陌生人组队")
-                else:
+                elif any(t in ['单人', '单机'] for t in game_tags):
                     score += 8
                     reasons.append("纯单人游戏，不需要朋友也能玩")
             
             if "剧情无聊" in quit_reasons:
-                if "剧情" in game["tags"] or "RPG" in game["types"]:
+                if any(t in ['剧情', '角色扮演', 'RPG'] for t in game_tags + game_types):
                     score += 15
                     reasons.append("剧情深度优秀，故事引人入胜")
-            
-            if "内容太少" in quit_reasons:
-                if "开放世界" in game["tags"] or "沙盒" in game["tags"]:
-                    score += 15
-                    reasons.append("内容丰富，可玩性高")
-                elif game["tutorial_count"] >= 3:
-                    score += 10
-                    reasons.append("社区有丰富攻略，不用担心没有内容")
         
-        # 4. 社区教程丰富度加成
-        if game["tutorial_count"] >= 4:
+        # 4. 社区教程加成
+        if game_tutorial_count >= 2:
+            score += 10
+            reasons.append(f"社区有 {game_tutorial_count} 篇教程可供参考")
+        elif game_tutorial_count >= 1:
             score += 5
-            reasons.append("社区有大量教程资源可供参考")
+            reasons.append(f"社区有 {game_tutorial_count} 篇教程")
         
-        # 5. 社交偏好适配
+        # 5. 社交偏好
         if social_preference >= 7:
-            if "多人" in game["tags"] or "合作" in game["tags"]:
+            if any(t in ['多人', '合作', '联机'] for t in game_tags):
                 score += 10
                 reasons.append("适合联机/社交，能认识新朋友")
         else:
-            if "单人" in game["tags"] or "剧情" in game["tags"]:
+            if any(t in ['单人', '单机', '剧情'] for t in game_tags):
                 score += 8
                 reasons.append("适合独自享受，沉浸感强")
         
         reasons = list(set(reasons))
         
-        recommendations.append({
-            "game": game,
-            "score": score,
-            "reasons": reasons[:3]
-        })
+        if reasons or score > 10:
+            recommendations.append({
+                "game": game,
+                "score": score,
+                "reasons": reasons[:3],
+                "tutorial_count": game_tutorial_count
+            })
     
     recommendations.sort(key=lambda x: x["score"], reverse=True)
     return recommendations[:6]
@@ -920,18 +772,21 @@ def show_registration_survey():
                     game = rec["game"]
                     with cols[idx % 3]:
                         with st.container(border=True):
-                            st.markdown(f"**🎮 {game['name']}**")
-                            st.caption(f"🏷️ {', '.join(game['tags'][:2])}")
-                            st.caption(f"📈 难度: {'⭐' * min(5, game['difficulty']//2)}")
-                            if game.get("steam_url"):
+                            st.markdown(f"**🎮 {game.get('name', '未知游戏')}**")
+                            if game.get('cover_url'):
+                                st.image(game['cover_url'], use_container_width=True)
+                            st.caption(f"🏷️ {', '.join(game.get('tags', [])[:2])}")
+                            if game.get('steam_url'):
                                 st.markdown(f"[查看 Steam]({game['steam_url']})")
                             st.markdown("---")
                             st.caption("💡 **推荐理由：**")
                             for reason in rec["reasons"]:
                                 st.write(f"• {reason}")
                             
-                            if game["tutorial_count"] > 0:
-                                st.caption(f"📚 社区有 {game['tutorial_count']} 篇教程")
+                            if rec.get("tutorial_count", 0) > 0:
+                                st.caption(f"📚 社区有 {rec['tutorial_count']} 篇教程")
+            else:
+                st.info("暂未找到匹配的游戏推荐，试试在搜索页面查找你喜欢的游戏吧！")
             
             st.balloons()
             return username
@@ -1298,7 +1153,6 @@ def show_user_profile():
     st.write("**⚠️ 弃坑主因**")
     st.write(", ".join(user_data.get("quit_reason", [])))
 
-    # ===== 新增：根据用户数据生成个性化推荐 =====
     st.markdown("---")
     st.subheader("🎯 根据你的游戏偏好，Compass 为你推荐：")
     st.caption("基于你的游戏类型偏好、技术水平、弃坑原因生成的个性化推荐")
@@ -1311,22 +1165,22 @@ def show_user_profile():
             game = rec["game"]
             with cols[idx % 3]:
                 with st.container(border=True):
-                    st.markdown(f"**🎮 {game['name']}**")
-                    st.caption(f"🏷️ {', '.join(game['tags'][:2])}")
-                    st.caption(f"📈 难度: {'⭐' * min(5, game['difficulty']//2)}")
-                    if game.get("steam_url"):
+                    st.markdown(f"**🎮 {game.get('name', '未知游戏')}**")
+                    if game.get('cover_url'):
+                        st.image(game['cover_url'], use_container_width=True)
+                    st.caption(f"🏷️ {', '.join(game.get('tags', [])[:2])}")
+                    if game.get('steam_url'):
                         st.markdown(f"[查看 Steam]({game['steam_url']})")
                     st.markdown("---")
                     st.caption("💡 **推荐理由：**")
                     for reason in rec["reasons"]:
                         st.write(f"• {reason}")
                     
-                    if game["tutorial_count"] > 0:
-                        st.caption(f"📚 社区有 {game['tutorial_count']} 篇教程")
+                    if rec.get("tutorial_count", 0) > 0:
+                        st.caption(f"📚 社区有 {rec['tutorial_count']} 篇教程")
     else:
-        st.info("请先在注册时填写游戏偏好，即可获得个性化推荐")
-
-    # ===== 新增：一键刷新推荐 =====
+        st.info("暂未找到匹配的游戏推荐，试试在搜索页面查找你喜欢的游戏吧！")
+    
     if st.button("🔄 刷新推荐"):
         st.rerun()
 
