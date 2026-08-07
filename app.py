@@ -18,9 +18,6 @@ import re
 import time
 warnings.filterwarnings('ignore')
 
-# ==========================================
-# 0. 数据存储配置
-# ==========================================
 USER_DATA_FILE = "user_data.json"
 STRATEGY_DB_FILE = "strategies_db.json"
 ACTIVITY_LOG_FILE = "activity_log.json"
@@ -46,9 +43,6 @@ def log_activity(username, action):
     }
     save_json_db(ACTIVITY_LOG_FILE, db)
 
-# ==========================================
-# 0.5 演示数据生成器
-# ==========================================
 def generate_demo_users():
     try:
         if os.path.exists(DEMO_DATA_FLAG):
@@ -142,9 +136,6 @@ def clear_demo_data():
         print(f"⚠️ 清除数据失败: {e}")
         return False
 
-# ==========================================
-# 1. 备选游戏列表（当 Steam API 无法访问时使用）
-# ==========================================
 FALLBACK_GAME_LIST = [
     {"name": "黑神话：悟空", "appid": 2358720},
     {"name": "艾尔登法环", "appid": 1245620},
@@ -356,10 +347,6 @@ def show_game_search():
                 else:
                     st.error("无法获取游戏详情，请检查 AppID 是否正确")
 
-# ==========================================
-# 2. 游戏推荐引擎（连接 Steam）
-# ==========================================
-
 def fetch_steam_hot_games(limit=20):
     """从 Steam 获取热门游戏列表"""
     try:
@@ -410,10 +397,6 @@ def fetch_steam_hot_games(limit=20):
         print(f"⚠️ 获取Steam热门游戏失败: {e}")
         return None
 
-# ==========================================
-# 2.5 协同过滤推荐系统 + 教程推荐
-# ==========================================
-
 def get_user_ratings():
     """获取所有用户的游戏评分数据"""
     user_db = load_json_db(USER_DATA_FILE)
@@ -445,16 +428,13 @@ def get_collaborative_recommendations(target_user, top_n=6):
     if not target_ratings:
         return []
     
-    # 计算用户相似度
     similarities = {}
     for user, ratings in user_ratings.items():
         if user == target_user:
             continue
-        # 计算共同评分的游戏
         common_games = set(target_ratings.keys()) & set(ratings.keys())
         if not common_games:
             continue
-        # 余弦相似度
         target_vec = [target_ratings[g] for g in common_games]
         user_vec = [ratings[g] for g in common_games]
         dot_product = sum(a * b for a, b in zip(target_vec, user_vec))
@@ -468,10 +448,8 @@ def get_collaborative_recommendations(target_user, top_n=6):
     if not similarities:
         return []
     
-    # 找最相似的用户
     similar_users = sorted(similarities.items(), key=lambda x: x[1], reverse=True)[:5]
     
-    # 聚合推荐
     recommended_games = {}
     for user, sim_score in similar_users:
         for game, rating in user_ratings[user].items():
@@ -481,10 +459,8 @@ def get_collaborative_recommendations(target_user, top_n=6):
                 recommended_games[game] = 0
             recommended_games[game] += rating * sim_score
     
-    # 按得分排序
     sorted_games = sorted(recommended_games.items(), key=lambda x: x[1], reverse=True)
     
-    # 匹配游戏数据库
     results = []
     for game_name, score in sorted_games[:top_n]:
         for game in GAME_DATABASE:
@@ -496,7 +472,6 @@ def get_collaborative_recommendations(target_user, top_n=6):
                 })
                 break
         else:
-            # 如果找不到匹配，尝试部分匹配
             for game in GAME_DATABASE:
                 if any(tag in game['name'] for tag in game_name.split()):
                     results.append({
@@ -515,13 +490,9 @@ def get_tutorial_recommendations(game_name, limit=3):
     for sid, item in strategy_db.items():
         if game_name.lower() in item.get('game_name', '').lower():
             tutorials.append(item)
-    # 按时间排序，最新的在前
     tutorials.sort(key=lambda x: x.get('time', ''), reverse=True)
     return tutorials[:limit]
 
-# ==========================================
-# 备选游戏数据库
-# ==========================================
 GAME_DATABASE = [
     {
         "name": "黑神话：悟空",
@@ -679,7 +650,6 @@ def get_recommendations(user_data):
                 game_tutorial_count = tutorial_games[key]
                 break
         
-        # 1. 类型匹配
         matched_types = [t for t in user_types if t in game_types or any(t in gt or gt in t for gt in game_types)]
         if matched_types:
             score += 30
@@ -695,7 +665,6 @@ def get_recommendations(user_data):
                     continue
                 break
         
-        # 2. 难度估算
         difficulty = 5
         if any(t in ['魂系', '硬核', '竞技', '困难'] for t in game_tags):
             difficulty = 8
@@ -724,7 +693,6 @@ def get_recommendations(user_data):
                 score += 10
                 reasons.append("有一定难度，值得挑战")
         
-        # 3. 弃坑原因适配
         if quit_reasons:
             if "没时间" in quit_reasons:
                 if difficulty <= 5:
@@ -748,16 +716,14 @@ def get_recommendations(user_data):
                 if any(t in ['剧情', '角色扮演', 'RPG'] for t in game_tags + game_types):
                     score += 15
                     reasons.append("剧情深度优秀，故事引人入胜")
-        
-        # 4. 社区教程加成
+
         if game_tutorial_count >= 2:
             score += 10
             reasons.append(f"社区有 {game_tutorial_count} 篇教程可供参考")
         elif game_tutorial_count >= 1:
             score += 5
             reasons.append(f"社区有 {game_tutorial_count} 篇教程")
-        
-        # 5. 社交偏好
+
         if social_preference >= 7:
             if any(t in ['多人', '合作', '联机'] for t in game_tags):
                 score += 10
@@ -780,9 +746,6 @@ def get_recommendations(user_data):
     recommendations.sort(key=lambda x: x["score"], reverse=True)
     return recommendations[:6]
 
-# ==========================================
-# 3. 用户注册 + 问卷 + 实时推荐
-# ==========================================
 def show_registration_survey():
     st.subheader("🧭 欢迎加入 Compass！请完成玩家档案")
     st.caption("用数据指引你的游戏之路")
@@ -901,9 +864,6 @@ def show_registration_survey():
             return username
     return None
 
-# ==========================================
-# 4. 数据科学看板
-# ==========================================
 def show_deep_data_insights():
     st.subheader("📊 Compass 数据科学看板")
     user_db = load_json_db(USER_DATA_FILE)
@@ -1170,9 +1130,6 @@ def show_deep_data_insights():
 
     st.caption(f"📅 报告自动生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
-# ==========================================
-# 5. 教程功能
-# ==========================================
 def show_publish_strategy():
     st.subheader("✍️ 发布游戏教程/心得")
     st.caption("分享你的经验，帮助其他玩家")
@@ -1230,9 +1187,6 @@ def show_strategy_list():
     if search and not found:
         st.info(f"未找到 '{search}' 相关的教程，去发布一篇吧！")
 
-# ==========================================
-# 6. 用户画像（含协同过滤 + 教程推荐）
-# ==========================================
 def show_user_profile():
     username = st.session_state.get("username", "")
     if not username:
@@ -1262,9 +1216,6 @@ def show_user_profile():
     st.write("**⚠️ 弃坑主因**")
     st.write(", ".join(user_data.get("quit_reason", [])))
 
-    # ============================================================
-    # 第一部分：游戏评分功能
-    # ============================================================
     st.markdown("---")
     st.subheader("⭐ 给游戏评分")
     st.caption("给玩过的游戏打分，帮助 Compass 更好地为你推荐")
@@ -1292,15 +1243,11 @@ def show_user_profile():
         else:
             st.error("评分失败，请重试")
 
-    # ============================================================
-    # 第二部分：三种推荐方式（Tab 切换）
-    # ============================================================
     st.markdown("---")
     st.subheader("🎯 游戏推荐")
     
     tab1, tab2, tab3 = st.tabs(["📊 基于偏好推荐", "👥 相似玩家推荐", "📚 社区教程推荐"])
     
-    # ---- Tab 1: 基于偏好推荐 ----
     with tab1:
         st.caption("根据你的游戏类型偏好、技术水平、弃坑原因生成")
         
@@ -1327,8 +1274,7 @@ def show_user_profile():
                             st.caption(f"📚 社区有 {rec['tutorial_count']} 篇教程")
         else:
             st.info("暂未找到匹配的游戏推荐，试试给玩过的游戏评分吧！")
-    
-    # ---- Tab 2: 相似玩家推荐 ----
+
     with tab2:
         st.caption("根据与你相似的其他玩家的喜好推荐")
         
@@ -1354,8 +1300,7 @@ def show_user_profile():
                 st.info("暂无相似用户的推荐，多给一些游戏评分可以获得更精准的推荐！")
         else:
             st.info("👆 请先在顶部给游戏评分，系统将为你推荐相似玩家喜欢的游戏")
-    
-    # ---- Tab 3: 社区教程推荐 ----
+
     with tab3:
         st.caption("根据你的游戏偏好，推荐社区热门教程")
         
@@ -1398,9 +1343,6 @@ def show_user_profile():
     if st.button("🔄 刷新推荐"):
         st.rerun()
 
-# ==========================================
-# 7. 管理员面板
-# ==========================================
 def show_admin_panel():
     st.subheader("🔐 管理员面板")
 
@@ -1427,9 +1369,6 @@ def show_admin_panel():
         st.metric("📋 活动日志", len(load_json_db(ACTIVITY_LOG_FILE)))
     st.caption("管理员密码: admin123")
 
-# ==========================================
-# 8. 主程序
-# ==========================================
 def main():
     st.set_page_config(page_title="Compass · 游戏社区", page_icon="🧭", layout="wide")
 
